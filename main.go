@@ -2,6 +2,7 @@ package main
 
 import (
 	"io/ioutil"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 	"sort"
@@ -61,8 +62,14 @@ func runQuery(q *remote.Query) []*remote.TimeSeries {
 			})
 		}
 	}
-	query.StartTime = aws.Time(time.Unix(q.StartTimestampMs/1000, 0))
-	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000, 0))
+
+	periodUnit := 60
+	if *query.Namespace == "AWS/EC2" {
+		periodUnit = 300
+	}
+
+	query.StartTime = aws.Time(time.Unix(q.StartTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
+	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
 
 	// auto calibrate period
 	period := 60
@@ -84,9 +91,9 @@ func runQuery(q *remote.Query) []*remote.TimeSeries {
 			period = 60 * 60
 		}
 	}
-	queryTimeRange := int((*query.EndTime).Sub(*query.StartTime).Seconds())
-	if queryTimeRange/period >= 1440 {
-		period = queryTimeRange / 1440 / period * period
+	queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
+	if queryTimeRange/float64(period) >= 1440 {
+		period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
 	}
 	query.Period = aws.Int64(int64(period))
 
