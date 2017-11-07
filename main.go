@@ -7,6 +7,7 @@ import (
 	_ "net/http/pprof"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -37,18 +38,18 @@ func runQuery(q *remote.Query) []*remote.TimeSeries {
 			continue // only support equal matcher
 		}
 
-		switch m.Name {
-		case "Region":
+		switch strings.ToLower(m.Name) {
+		case "region":
 			region = m.Value
-		case "Namespace":
+		case "namespace":
 			query.Namespace = aws.String(m.Value)
-		case "MetricName":
+		case "metricname":
 			query.MetricName = aws.String(m.Value)
-		case "Statistics":
+		case "statistics":
 			query.Statistics = []*string{aws.String(m.Value)}
-		case "ExtendedStatistics":
+		case "extendedstatistics":
 			query.ExtendedStatistics = []*string{aws.String(m.Value)}
-		case "Period":
+		case "period":
 			period, err := strconv.Atoi(m.Value)
 			if err != nil {
 				log.Errorf("Invalid period = %s", m.Value)
