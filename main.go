@@ -68,7 +68,7 @@ func runQuery(q *remote.Query) []*remote.TimeSeries {
 		periodUnit = 300
 	}
 
-	query.StartTime = aws.Time(time.Unix(q.StartTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
+	query.StartTime = aws.Time(time.Unix((q.StartTimestampMs/1000/int64(periodUnit)+1)*int64(periodUnit), 0))
 	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
 
 	// auto calibrate period
