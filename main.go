@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"io/ioutil"
 	"math"
 	"net/http"
@@ -20,6 +21,10 @@ import (
 
 	"github.com/prometheus/prometheus/storage/remote"
 )
+
+type config struct {
+	listenAddr string
+}
 
 type byTimestamp []*cloudwatch.Datapoint
 
@@ -152,6 +157,10 @@ func runQuery(q *remote.Query) []*remote.TimeSeries {
 }
 
 func main() {
+	var cfg config
+	flag.StringVar(&cfg.listenAddr, "web.listen-address", ":9201", "Address to listen on for web endpoints.")
+	flag.Parse()
+
 	http.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
 		compressed, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -194,5 +203,5 @@ func main() {
 		}
 	})
 
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(cfg.listenAddr, nil)
 }
