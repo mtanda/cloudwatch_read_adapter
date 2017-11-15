@@ -16,20 +16,20 @@ package remote
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
-	"golang.org/x/net/context"
+	"github.com/prometheus/common/model"
 	"golang.org/x/net/context/ctxhttp"
 
-	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/storage/metric"
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/util/httputil"
 )
 
@@ -37,31 +37,34 @@ const maxErrMsgLen = 256
 
 // Client allows reading and writing from/to a remote HTTP endpoint.
 type Client struct {
-	index   int // Used to differentiate metrics.
-	url     *config.URL
-	client  *http.Client
-	timeout time.Duration
+	index      int // Used to differentiate metrics.
+	url        *config.URL
+	client     *http.Client
+	timeout    time.Duration
+	readRecent bool
 }
 
 // ClientConfig configures a Client.
 type ClientConfig struct {
 	URL              *config.URL
 	Timeout          model.Duration
+	ReadRecent       bool
 	HTTPClientConfig config.HTTPClientConfig
 }
 
 // NewClient creates a new Client.
 func NewClient(index int, conf *ClientConfig) (*Client, error) {
-	httpClient, err := httputil.NewClientFromConfigAndOptions(conf.HTTPClientConfig, false)
+	httpClient, err := httputil.NewClientFromConfig(conf.HTTPClientConfig, "remote_storage")
 	if err != nil {
 		return nil, err
 	}
 
 	return &Client{
-		index:   index,
-		url:     conf.URL,
-		client:  httpClient,
-		timeout: time.Duration(conf.Timeout),
+		index:      index,
+		url:        conf.URL,
+		client:     httpClient,
+		timeout:    time.Duration(conf.Timeout),
+		readRecent: conf.ReadRecent,
 	}, nil
 }
 
@@ -70,15 +73,14 @@ type recoverableError struct {
 }
 
 // Store sends a batch of samples to the HTTP endpoint.
-func (c *Client) Store(samples model.Samples) error {
-	req := ToWriteRequest(samples)
+func (c *Client) Store(req *prompb.WriteRequest) error {
 	data, err := proto.Marshal(req)
 	if err != nil {
 		return err
 	}
 
 	compressed := snappy.Encode(nil, data)
-	httpReq, err := http.NewRequest("POST", c.url.String(), bytes.NewBuffer(compressed))
+	httpReq, err := http.NewRequest("POST", c.url.String(), bytes.NewReader(compressed))
 	if err != nil {
 		// Errors from NewRequest are from unparseable URLs, so are not
 		// recoverable.
@@ -119,25 +121,21 @@ func (c Client) Name() string {
 }
 
 // Read reads from a remote endpoint.
-func (c *Client) Read(ctx context.Context, from, through model.Time, matchers metric.LabelMatchers) (model.Matrix, error) {
-	query, err := ToQuery(from, through, matchers)
-	if err != nil {
-		return nil, err
-	}
-
-	req := &ReadRequest{
+func (c *Client) Read(ctx context.Context, query *prompb.Query) (*prompb.QueryResult, error) {
+	req := &prompb.ReadRequest{
 		// TODO: Support batching multiple queries into one read request,
 		// as the protobuf interface allows for it.
-		Queries: []*Query{query},
+		Queries: []*prompb.Query{
+			query,
+		},
 	}
-
 	data, err := proto.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal read request: %v", err)
 	}
 
 	compressed := snappy.Encode(nil, data)
-	httpReq, err := http.NewRequest("POST", c.url.String(), bytes.NewBuffer(compressed))
+	httpReq, err := http.NewRequest("POST", c.url.String(), bytes.NewReader(compressed))
 	if err != nil {
 		return nil, fmt.Errorf("unable to create request: %v", err)
 	}
@@ -167,7 +165,7 @@ func (c *Client) Read(ctx context.Context, from, through model.Time, matchers me
 		return nil, fmt.Errorf("error reading response: %v", err)
 	}
 
-	var resp ReadResponse
+	var resp prompb.ReadResponse
 	err = proto.Unmarshal(uncompressed, &resp)
 	if err != nil {
 		return nil, fmt.Errorf("unable to unmarshal response body: %v", err)
@@ -177,5 +175,5 @@ func (c *Client) Read(ctx context.Context, from, through model.Time, matchers me
 		return nil, fmt.Errorf("responses: want %d, got %d", len(req.Queries), len(resp.Results))
 	}
 
-	return FromQueryResult(resp.Results[0]), nil
+	return resp.Results[0], nil
 }

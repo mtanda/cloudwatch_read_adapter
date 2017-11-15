@@ -15,41 +15,42 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
+	"net"
+	"net/http"
+	_ "net/http/pprof" // Comment this line to disable pprof endpoint.
+	"net/url"
 	"os"
 	"os/signal"
-	"runtime/debug"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/version"
-	"golang.org/x/net/context"
+	"gopkg.in/alecthomas/kingpin.v2"
+	k8s_runtime "k8s.io/apimachinery/pkg/util/runtime"
 
+	"github.com/mwitkow/go-conntrack"
+	"github.com/prometheus/common/promlog"
+	promlogflag "github.com/prometheus/common/promlog/flag"
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/notifier"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/retrieval"
 	"github.com/prometheus/prometheus/rules"
 	"github.com/prometheus/prometheus/storage"
-	"github.com/prometheus/prometheus/storage/fanin"
-	"github.com/prometheus/prometheus/storage/local"
 	"github.com/prometheus/prometheus/storage/remote"
+	"github.com/prometheus/prometheus/storage/tsdb"
 	"github.com/prometheus/prometheus/web"
 )
-
-func main() {
-	os.Exit(Main())
-}
-
-// defaultGCPercent is the value used to to call SetGCPercent if the GOGC
-// environment variable is not set or empty. The value here is intended to hit
-// the sweet spot between memory utilization and GC effort. It is lower than the
-// usual default of 100 as a lot of the heap in Prometheus is used to cache
-// memory chunks, which have a lifetime of hours if not days or weeks.
-const defaultGCPercent = 40
 
 var (
 	configSuccess = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -68,70 +69,185 @@ func init() {
 	prometheus.MustRegister(version.NewCollector("prometheus"))
 }
 
-// Main manages the startup and shutdown lifecycle of the entire Prometheus server.
-func Main() int {
-	if err := parse(os.Args[1:]); err != nil {
-		log.Error(err)
-		return 2
+func main() {
+	if os.Getenv("DEBUG") != "" {
+		runtime.SetBlockProfileRate(20)
+		runtime.SetMutexProfileFraction(20)
 	}
 
-	if cfg.printVersion {
-		fmt.Fprintln(os.Stdout, version.Print("prometheus"))
-		return 0
+	cfg := struct {
+		configFile string
+
+		localStoragePath string
+		notifier         notifier.Options
+		notifierTimeout  model.Duration
+		queryEngine      promql.EngineOptions
+		web              web.Options
+		tsdb             tsdb.Options
+		lookbackDelta    model.Duration
+		webTimeout       model.Duration
+		queryTimeout     model.Duration
+
+		prometheusURL string
+
+		logLevel promlog.AllowedLevel
+	}{
+		notifier: notifier.Options{
+			Registerer: prometheus.DefaultRegisterer,
+		},
 	}
 
-	if os.Getenv("GOGC") == "" {
-		debug.SetGCPercent(defaultGCPercent)
+	a := kingpin.New(filepath.Base(os.Args[0]), "The Prometheus monitoring server")
+
+	a.Version(version.Print("prometheus"))
+
+	a.HelpFlag.Short('h')
+
+	a.Flag("config.file", "Prometheus configuration file path.").
+		Default("prometheus.yml").StringVar(&cfg.configFile)
+
+	a.Flag("web.listen-address", "Address to listen on for UI, API, and telemetry.").
+		Default("0.0.0.0:9090").StringVar(&cfg.web.ListenAddress)
+
+	a.Flag("web.read-timeout",
+		"Maximum duration before timing out read of the request, and closing idle connections.").
+		Default("5m").SetValue(&cfg.webTimeout)
+
+	a.Flag("web.max-connections", "Maximum number of simultaneous connections.").
+		Default("512").IntVar(&cfg.web.MaxConnections)
+
+	a.Flag("web.external-url",
+		"The URL under which Prometheus is externally reachable (for example, if Prometheus is served via a reverse proxy). Used for generating relative and absolute links back to Prometheus itself. If the URL has a path portion, it will be used to prefix all HTTP endpoints served by Prometheus. If omitted, relevant URL components will be derived automatically.").
+		PlaceHolder("<URL>").StringVar(&cfg.prometheusURL)
+
+	a.Flag("web.route-prefix",
+		"Prefix for the internal routes of web endpoints. Defaults to path of --web.external-url.").
+		PlaceHolder("<path>").StringVar(&cfg.web.RoutePrefix)
+
+	a.Flag("web.user-assets", "Path to static asset directory, available at /user.").
+		PlaceHolder("<path>").StringVar(&cfg.web.UserAssetsPath)
+
+	a.Flag("web.enable-lifecycle", "Enable shutdown and reload via HTTP request.").
+		Default("false").BoolVar(&cfg.web.EnableLifecycle)
+
+	a.Flag("web.enable-admin-api", "Enables API endpoints for admin control actions.").
+		Default("false").BoolVar(&cfg.web.EnableAdminAPI)
+
+	a.Flag("web.console.templates", "Path to the console template directory, available at /consoles.").
+		Default("consoles").StringVar(&cfg.web.ConsoleTemplatesPath)
+
+	a.Flag("web.console.libraries", "Path to the console library directory.").
+		Default("console_libraries").StringVar(&cfg.web.ConsoleLibrariesPath)
+
+	a.Flag("storage.tsdb.path", "Base path for metrics storage.").
+		Default("data/").StringVar(&cfg.localStoragePath)
+
+	a.Flag("storage.tsdb.min-block-duration", "Minimum duration of a data block before being persisted.").
+		Default("2h").SetValue(&cfg.tsdb.MinBlockDuration)
+
+	a.Flag("storage.tsdb.max-block-duration",
+		"Maximum duration compacted blocks may span. (Defaults to 10% of the retention period)").
+		PlaceHolder("<duration>").SetValue(&cfg.tsdb.MaxBlockDuration)
+
+	a.Flag("storage.tsdb.retention", "How long to retain samples in the storage.").
+		Default("15d").SetValue(&cfg.tsdb.Retention)
+
+	a.Flag("storage.tsdb.no-lockfile", "Do not create lockfile in data directory.").
+		Default("false").BoolVar(&cfg.tsdb.NoLockfile)
+
+	a.Flag("alertmanager.notification-queue-capacity", "The capacity of the queue for pending alert manager notifications.").
+		Default("10000").IntVar(&cfg.notifier.QueueCapacity)
+
+	a.Flag("alertmanager.timeout", "Timeout for sending alerts to Alertmanager.").
+		Default("10s").SetValue(&cfg.notifierTimeout)
+
+	a.Flag("query.lookback-delta", "The delta difference allowed for retrieving metrics during expression evaluations.").
+		Default("5m").SetValue(&cfg.lookbackDelta)
+
+	a.Flag("query.timeout", "Maximum time a query may take before being aborted.").
+		Default("2m").SetValue(&cfg.queryTimeout)
+
+	a.Flag("query.max-concurrency", "Maximum number of queries executed concurrently.").
+		Default("20").IntVar(&cfg.queryEngine.MaxConcurrentQueries)
+
+	promlogflag.AddFlags(a, &cfg.logLevel)
+
+	_, err := a.Parse(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, errors.Wrapf(err, "Error parsing commandline arguments"))
+		a.Usage(os.Args[1:])
+		os.Exit(2)
 	}
 
-	log.Infoln("Starting prometheus", version.Info())
-	log.Infoln("Build context", version.BuildContext())
-	log.Infoln("Host details", Uname())
+	cfg.web.ExternalURL, err = computeExternalURL(cfg.prometheusURL, cfg.web.ListenAddress)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, errors.Wrapf(err, "parse external URL %q", cfg.prometheusURL))
+		os.Exit(2)
+	}
+
+	cfg.web.ReadTimeout = time.Duration(cfg.webTimeout)
+	// Default -web.route-prefix to path of -web.external-url.
+	if cfg.web.RoutePrefix == "" {
+		cfg.web.RoutePrefix = cfg.web.ExternalURL.Path
+	}
+	// RoutePrefix must always be at least '/'.
+	cfg.web.RoutePrefix = "/" + strings.Trim(cfg.web.RoutePrefix, "/")
+
+	if cfg.tsdb.MaxBlockDuration == 0 {
+		cfg.tsdb.MaxBlockDuration = cfg.tsdb.Retention / 10
+	}
+
+	promql.LookbackDelta = time.Duration(cfg.lookbackDelta)
+
+	cfg.queryEngine.Timeout = time.Duration(cfg.queryTimeout)
+
+	logger := promlog.New(cfg.logLevel)
+
+	// XXX(fabxc): Kubernetes does background logging which we can only customize by modifying
+	// a global variable.
+	// Ultimately, here is the best place to set it.
+	k8s_runtime.ErrorHandlers = []func(error){
+		func(err error) {
+			level.Error(log.With(logger, "component", "k8s_client_runtime")).Log("err", err)
+		},
+	}
+
+	level.Info(logger).Log("msg", "Starting Prometheus", "version", version.Info())
+	level.Info(logger).Log("build_context", version.BuildContext())
+	level.Info(logger).Log("host_details", Uname())
+
+	// Make sure that sighup handler is registered with a redirect to the channel before the potentially
+	// long and synchronous tsdb init.
+	hup := make(chan os.Signal)
+	hupReady := make(chan bool)
+	signal.Notify(hup, syscall.SIGHUP)
 
 	var (
-		sampleAppender = storage.Fanout{}
-		reloadables    []Reloadable
+		localStorage  = &tsdb.ReadyStorage{}
+		remoteStorage = remote.NewStorage(log.With(logger, "component", "remote"), localStorage.StartTime)
+		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
 	)
 
-	var localStorage local.Storage
-	switch cfg.localStorageEngine {
-	case "persisted":
-		localStorage = local.NewMemorySeriesStorage(&cfg.storage)
-		sampleAppender = storage.Fanout{localStorage}
-	case "none":
-		localStorage = &local.NoopStorage{}
-	default:
-		log.Errorf("Invalid local storage engine %q", cfg.localStorageEngine)
-		return 1
-	}
-
-	remoteAppender := &remote.Writer{}
-	sampleAppender = append(sampleAppender, remoteAppender)
-	remoteReader := &remote.Reader{}
-	reloadables = append(reloadables, remoteAppender, remoteReader)
-
-	queryable := fanin.Queryable{
-		Local:  localStorage,
-		Remote: remoteReader,
-	}
-
+	cfg.queryEngine.Logger = log.With(logger, "component", "query engine")
 	var (
-		notifier       = notifier.New(&cfg.notifier, log.Base())
-		targetManager  = retrieval.NewTargetManager(sampleAppender, log.Base())
-		queryEngine    = promql.NewEngine(queryable, &cfg.queryEngine)
+		notifier       = notifier.New(&cfg.notifier, log.With(logger, "component", "notifier"))
+		targetManager  = retrieval.NewTargetManager(fanoutStorage, log.With(logger, "component", "target manager"))
+		queryEngine    = promql.NewEngine(fanoutStorage, &cfg.queryEngine)
 		ctx, cancelCtx = context.WithCancel(context.Background())
 	)
 
 	ruleManager := rules.NewManager(&rules.ManagerOptions{
-		SampleAppender: sampleAppender,
-		Notifier:       notifier,
-		QueryEngine:    queryEngine,
-		Context:        fanin.WithLocalOnly(ctx),
-		ExternalURL:    cfg.web.ExternalURL,
+		Appendable:  fanoutStorage,
+		Notifier:    notifier,
+		QueryEngine: queryEngine,
+		Context:     ctx,
+		ExternalURL: cfg.web.ExternalURL,
+		Logger:      log.With(logger, "component", "rule manager"),
 	})
 
 	cfg.web.Context = ctx
-	cfg.web.Storage = localStorage
+	cfg.web.TSDB = localStorage.Get
+	cfg.web.Storage = fanoutStorage
 	cfg.web.QueryEngine = queryEngine
 	cfg.web.TargetManager = targetManager
 	cfg.web.RuleManager = ruleManager
@@ -147,37 +263,39 @@ func Main() int {
 	}
 
 	cfg.web.Flags = map[string]string{}
-	cfg.fs.VisitAll(func(f *flag.Flag) {
+	for _, f := range a.Model().Flags {
 		cfg.web.Flags[f.Name] = f.Value.String()
-	})
+	}
 
-	webHandler := web.New(&cfg.web)
-	go webHandler.Run()
+	webHandler := web.New(log.With(logger, "component", "web"), &cfg.web)
 
-	reloadables = append(reloadables, targetManager, ruleManager, webHandler, notifier)
+	// Monitor outgoing connections on default transport with conntrack.
+	http.DefaultTransport.(*http.Transport).DialContext = conntrack.NewDialContextFunc(
+		conntrack.DialWithTracing(),
+	)
 
-	if err := reloadConfig(cfg.configFile, reloadables...); err != nil {
-		log.Errorf("Error loading config: %s", err)
-		return 1
+	reloadables := []Reloadable{
+		remoteStorage,
+		targetManager,
+		ruleManager,
+		webHandler,
+		notifier,
 	}
 
 	// Wait for reload or termination signals. Start the handler for SIGHUP as
 	// early as possible, but ignore it until we are ready to handle reloading
 	// our config.
-	hup := make(chan os.Signal)
-	hupReady := make(chan bool)
-	signal.Notify(hup, syscall.SIGHUP)
 	go func() {
 		<-hupReady
 		for {
 			select {
 			case <-hup:
-				if err := reloadConfig(cfg.configFile, reloadables...); err != nil {
-					log.Errorf("Error reloading config: %s", err)
+				if err := reloadConfig(cfg.configFile, logger, reloadables...); err != nil {
+					level.Error(logger).Log("msg", "Error reloading config", "err", err)
 				}
 			case rc := <-webHandler.Reload():
-				if err := reloadConfig(cfg.configFile, reloadables...); err != nil {
-					log.Errorf("Error reloading config: %s", err)
+				if err := reloadConfig(cfg.configFile, logger, reloadables...); err != nil {
+					level.Error(logger).Log("msg", "Error reloading config", "err", err)
 					rc <- err
 				} else {
 					rc <- nil
@@ -186,24 +304,31 @@ func Main() int {
 		}
 	}()
 
-	// Start all components. The order is NOT arbitrary.
+	// Start all components while we wait for TSDB to open but only load
+	// initial config and mark ourselves as ready after it completed.
+	dbOpen := make(chan struct{})
 
-	if err := localStorage.Start(); err != nil {
-		log.Errorln("Error opening memory series storage:", err)
-		return 1
-	}
-	defer func() {
-		if err := localStorage.Stop(); err != nil {
-			log.Errorln("Error stopping storage:", err)
+	go func() {
+		defer close(dbOpen)
+
+		level.Info(logger).Log("msg", "Starting TSDB")
+
+		db, err := tsdb.Open(
+			cfg.localStoragePath,
+			log.With(logger, "component", "tsdb"),
+			prometheus.DefaultRegisterer,
+			&cfg.tsdb,
+		)
+		if err != nil {
+			level.Error(logger).Log("msg", "Opening storage failed", "err", err)
+			os.Exit(1)
 		}
+		level.Info(logger).Log("msg", "TSDB started")
+
+		startTimeMargin := int64(2 * time.Duration(cfg.tsdb.MinBlockDuration).Seconds() * 1000)
+		localStorage.Set(db, startTimeMargin)
 	}()
 
-	defer remoteAppender.Stop()
-
-	// The storage has to be fully initialized before registering.
-	if instrumentedStorage, ok := localStorage.(prometheus.Collector); ok {
-		prometheus.MustRegister(instrumentedStorage)
-	}
 	prometheus.MustRegister(configSuccess)
 	prometheus.MustRegister(configSuccessTime)
 
@@ -222,26 +347,41 @@ func Main() int {
 	// to be canceled and ensures a quick shutdown of the rule manager.
 	defer cancelCtx()
 
+	errc := make(chan error)
+	go func() { errc <- webHandler.Run(ctx) }()
+
+	<-dbOpen
+
+	if err := reloadConfig(cfg.configFile, logger, reloadables...); err != nil {
+		level.Error(logger).Log("msg", "Error loading config", "err", err)
+		os.Exit(1)
+	}
+
+	defer func() {
+		if err := fanoutStorage.Close(); err != nil {
+			level.Error(logger).Log("msg", "Error stopping storage", "err", err)
+		}
+	}()
+
 	// Wait for reload or termination signals.
 	close(hupReady) // Unblock SIGHUP handler.
 
 	// Set web server to ready.
 	webHandler.Ready()
-	log.Info("Server is Ready to receive requests.")
+	level.Info(logger).Log("msg", "Server is ready to receive requests.")
 
 	term := make(chan os.Signal, 1)
 	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
 	select {
 	case <-term:
-		log.Warn("Received SIGTERM, exiting gracefully...")
+		level.Warn(logger).Log("msg", "Received SIGTERM, exiting gracefully...")
 	case <-webHandler.Quit():
-		log.Warn("Received termination request via web service, exiting gracefully...")
-	case err := <-webHandler.ListenError():
-		log.Errorln("Error starting web server, exiting gracefully:", err)
+		level.Warn(logger).Log("msg", "Received termination request via web service, exiting gracefully...")
+	case err := <-errc:
+		level.Error(logger).Log("msg", "Error starting web server, exiting gracefully", "err", err)
 	}
 
-	log.Info("See you next time!")
-	return 0
+	level.Info(logger).Log("msg", "See you next time!")
 }
 
 // Reloadable things can change their internal state to match a new config
@@ -250,8 +390,9 @@ type Reloadable interface {
 	ApplyConfig(*config.Config) error
 }
 
-func reloadConfig(filename string, rls ...Reloadable) (err error) {
-	log.Infof("Loading configuration file %s", filename)
+func reloadConfig(filename string, logger log.Logger, rls ...Reloadable) (err error) {
+	level.Info(logger).Log("msg", "Loading configuration file", "filename", filename)
+
 	defer func() {
 		if err == nil {
 			configSuccess.Set(1)
@@ -263,27 +404,56 @@ func reloadConfig(filename string, rls ...Reloadable) (err error) {
 
 	conf, err := config.LoadFile(filename)
 	if err != nil {
-		return fmt.Errorf("couldn't load configuration (-config.file=%s): %v", filename, err)
-	}
-
-	// Add AlertmanagerConfigs for legacy Alertmanager URL flags.
-	for us := range cfg.alertmanagerURLs {
-		acfg, err := parseAlertmanagerURLToConfig(us)
-		if err != nil {
-			return err
-		}
-		conf.AlertingConfig.AlertmanagerConfigs = append(conf.AlertingConfig.AlertmanagerConfigs, acfg)
+		return fmt.Errorf("couldn't load configuration (--config.file=%s): %v", filename, err)
 	}
 
 	failed := false
 	for _, rl := range rls {
 		if err := rl.ApplyConfig(conf); err != nil {
-			log.Error("Failed to apply configuration: ", err)
+			level.Error(logger).Log("msg", "Failed to apply configuration", "err", err)
 			failed = true
 		}
 	}
 	if failed {
-		return fmt.Errorf("one or more errors occurred while applying the new configuration (-config.file=%s)", filename)
+		return fmt.Errorf("one or more errors occurred while applying the new configuration (--config.file=%s)", filename)
 	}
 	return nil
+}
+
+func startsOrEndsWithQuote(s string) bool {
+	return strings.HasPrefix(s, "\"") || strings.HasPrefix(s, "'") ||
+		strings.HasSuffix(s, "\"") || strings.HasSuffix(s, "'")
+}
+
+// computeExternalURL computes a sanitized external URL from a raw input. It infers unset
+// URL parts from the OS and the given listen address.
+func computeExternalURL(u, listenAddr string) (*url.URL, error) {
+	if u == "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			return nil, err
+		}
+		_, port, err := net.SplitHostPort(listenAddr)
+		if err != nil {
+			return nil, err
+		}
+		u = fmt.Sprintf("http://%s:%s/", hostname, port)
+	}
+
+	if startsOrEndsWithQuote(u) {
+		return nil, fmt.Errorf("URL must not begin or end with quotes")
+	}
+
+	eu, err := url.Parse(u)
+	if err != nil {
+		return nil, err
+	}
+
+	ppref := strings.TrimRight(eu.Path, "/")
+	if ppref != "" && !strings.HasPrefix(ppref, "/") {
+		ppref = "/" + ppref
+	}
+	eu.Path = ppref
+
+	return eu, nil
 }

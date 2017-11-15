@@ -14,19 +14,21 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 
-	"github.com/prometheus/common/log"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/util/strutil"
-	"golang.org/x/net/context"
 	"k8s.io/client-go/pkg/api"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/util/strutil"
 )
 
 // Pod discovers new pod targets.
@@ -38,6 +40,9 @@ type Pod struct {
 
 // NewPod creates a new pod discovery.
 func NewPod(l log.Logger, pods cache.SharedInformer) *Pod {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
 	return &Pod{
 		informer: pods,
 		store:    pods.GetStore(),
@@ -53,7 +58,7 @@ func (p *Pod) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		tg := p.buildPod(o.(*apiv1.Pod))
 		initial = append(initial, tg)
 
-		p.logger.With("tg", fmt.Sprintf("%#v", tg)).Debugln("initial pod")
+		level.Debug(p.logger).Log("msg", "initial pod", "tg", fmt.Sprintf("%#v", tg))
 	}
 	select {
 	case <-ctx.Done():
@@ -63,7 +68,7 @@ func (p *Pod) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 	// Send target groups for pod updates.
 	send := func(tg *config.TargetGroup) {
-		p.logger.With("tg", fmt.Sprintf("%#v", tg)).Debugln("pod update")
+		level.Debug(p.logger).Log("msg", "pod update", "tg", fmt.Sprintf("%#v", tg))
 		select {
 		case <-ctx.Done():
 		case ch <- []*config.TargetGroup{tg}:
@@ -75,7 +80,7 @@ func (p *Pod) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			pod, err := convertToPod(o)
 			if err != nil {
-				p.logger.With("err", err).Errorln("converting to Pod object failed")
+				level.Error(p.logger).Log("msg", "converting to Pod object failed", "err", err)
 				return
 			}
 			send(p.buildPod(pod))
@@ -85,7 +90,7 @@ func (p *Pod) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			pod, err := convertToPod(o)
 			if err != nil {
-				p.logger.With("err", err).Errorln("converting to Pod object failed")
+				level.Error(p.logger).Log("msg", "converting to Pod object failed", "err", err)
 				return
 			}
 			send(&config.TargetGroup{Source: podSource(pod)})
@@ -95,7 +100,7 @@ func (p *Pod) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			pod, err := convertToPod(o)
 			if err != nil {
-				p.logger.With("err", err).Errorln("converting to Pod object failed")
+				level.Error(p.logger).Log("msg", "converting to Pod object failed", "err", err)
 				return
 			}
 			send(p.buildPod(pod))

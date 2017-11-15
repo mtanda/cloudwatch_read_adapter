@@ -14,17 +14,18 @@
 package dns
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"golang.org/x/net/context"
 
 	"github.com/prometheus/prometheus/config"
 )
@@ -71,6 +72,10 @@ type Discovery struct {
 
 // NewDiscovery returns a new Discovery which periodically refreshes its targets.
 func NewDiscovery(conf *config.DNSSDConfig, logger log.Logger) *Discovery {
+	if logger == nil {
+		logger = log.NewNopLogger()
+	}
+
 	qtype := dns.TypeSRV
 	switch strings.ToUpper(conf.Type) {
 	case "A":
@@ -114,7 +119,7 @@ func (d *Discovery) refreshAll(ctx context.Context, ch chan<- []*config.TargetGr
 	for _, name := range d.names {
 		go func(n string) {
 			if err := d.refresh(ctx, n, ch); err != nil {
-				d.logger.Errorf("Error refreshing DNS targets: %s", err)
+				level.Error(d.logger).Log("msg", "Error refreshing DNS targets", "err", err)
 			}
 			wg.Done()
 		}(name)
@@ -149,7 +154,7 @@ func (d *Discovery) refresh(ctx context.Context, name string, ch chan<- []*confi
 		case *dns.AAAA:
 			target = hostPort(addr.AAAA.String(), d.port)
 		default:
-			d.logger.Warnf("%q is not a valid SRV record", record)
+			level.Warn(d.logger).Log("msg", "Invalid SRV record", "record", record)
 			continue
 		}
 		tg.Targets = append(tg.Targets, model.LabelSet{
@@ -250,11 +255,7 @@ func lookupFromAnyServer(name string, qtype uint16, conf *dns.ClientConfig, logg
 		servAddr := net.JoinHostPort(server, conf.Port)
 		msg, err := askServerForName(name, qtype, client, servAddr, false)
 		if err != nil {
-			logger.
-				With("server", server).
-				With("name", name).
-				With("reason", err).
-				Warn("DNS resolution failed.")
+			level.Warn(logger).Log("msg", "DNS resolution failed", "server", server, "name", name, "err", err)
 			continue
 		}
 

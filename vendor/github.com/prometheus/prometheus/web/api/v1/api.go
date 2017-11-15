@@ -14,6 +14,7 @@
 package v1
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,13 +28,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/route"
-	"golang.org/x/net/context"
 
 	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/timestamp"
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/retrieval"
-	"github.com/prometheus/prometheus/storage/local"
-	"github.com/prometheus/prometheus/storage/metric"
+	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/util/httputil"
 )
@@ -99,13 +101,13 @@ type apiFunc func(r *http.Request) (interface{}, *apiError)
 // API can register a set of endpoints in a router and handle
 // them using the provided storage and query engine.
 type API struct {
-	Storage     local.Storage
+	Queryable   promql.Queryable
 	QueryEngine *promql.Engine
 
 	targetRetriever       targetRetriever
 	alertmanagerRetriever alertmanagerRetriever
 
-	now    func() model.Time
+	now    func() time.Time
 	config func() config.Config
 	ready  func(http.HandlerFunc) http.HandlerFunc
 }
@@ -113,7 +115,7 @@ type API struct {
 // NewAPI returns an initialized API type.
 func NewAPI(
 	qe *promql.Engine,
-	st local.Storage,
+	q promql.Queryable,
 	tr targetRetriever,
 	ar alertmanagerRetriever,
 	configFunc func() config.Config,
@@ -121,10 +123,10 @@ func NewAPI(
 ) *API {
 	return &API{
 		QueryEngine:           qe,
-		Storage:               st,
+		Queryable:             q,
 		targetRetriever:       tr,
 		alertmanagerRetriever: ar,
-		now:    model.Now,
+		now:    time.Now,
 		config: configFunc,
 		ready:  readyFunc,
 	}
@@ -166,8 +168,8 @@ func (api *API) Register(r *route.Router) {
 }
 
 type queryData struct {
-	ResultType model.ValueType `json:"resultType"`
-	Result     model.Value     `json:"result"`
+	ResultType promql.ValueType `json:"resultType"`
+	Result     promql.Value     `json:"result"`
 }
 
 func (api *API) options(r *http.Request) (interface{}, *apiError) {
@@ -175,7 +177,7 @@ func (api *API) options(r *http.Request) (interface{}, *apiError) {
 }
 
 func (api *API) query(r *http.Request) (interface{}, *apiError) {
-	var ts model.Time
+	var ts time.Time
 	if t := r.FormValue("time"); t != "" {
 		var err error
 		ts, err = parseTime(t)
@@ -279,6 +281,7 @@ func (api *API) queryRange(r *http.Request) (interface{}, *apiError) {
 		}
 		return nil, &apiError{errorExec, res.Err}
 	}
+
 	return &queryData{
 		ResultType: res.Value.Type(),
 		Result:     res.Value,
@@ -286,25 +289,31 @@ func (api *API) queryRange(r *http.Request) (interface{}, *apiError) {
 }
 
 func (api *API) labelValues(r *http.Request) (interface{}, *apiError) {
-	name := route.Param(r.Context(), "name")
+	ctx := r.Context()
+	name := route.Param(ctx, "name")
 
 	if !model.LabelNameRE.MatchString(name) {
 		return nil, &apiError{errorBadData, fmt.Errorf("invalid label name: %q", name)}
 	}
-	q, err := api.Storage.Querier()
+	q, err := api.Queryable.Querier(ctx, math.MinInt64, math.MaxInt64)
 	if err != nil {
 		return nil, &apiError{errorExec, err}
 	}
 	defer q.Close()
 
-	vals, err := q.LabelValuesForLabelName(r.Context(), model.LabelName(name))
+	// TODO(fabxc): add back request context.
+	vals, err := q.LabelValues(name)
 	if err != nil {
 		return nil, &apiError{errorExec, err}
 	}
-	sort.Sort(vals)
 
 	return vals, nil
 }
+
+var (
+	minTime = time.Unix(math.MinInt64/1000+62135596801, 0)
+	maxTime = time.Unix(math.MaxInt64/1000-62135596801, 999999999)
+)
 
 func (api *API) series(r *http.Request) (interface{}, *apiError) {
 	r.ParseForm()
@@ -312,7 +321,7 @@ func (api *API) series(r *http.Request) (interface{}, *apiError) {
 		return nil, &apiError{errorBadData, fmt.Errorf("no match[] parameter provided")}
 	}
 
-	var start model.Time
+	var start time.Time
 	if t := r.FormValue("start"); t != "" {
 		var err error
 		start, err = parseTime(t)
@@ -320,10 +329,10 @@ func (api *API) series(r *http.Request) (interface{}, *apiError) {
 			return nil, &apiError{errorBadData, err}
 		}
 	} else {
-		start = model.Earliest
+		start = minTime
 	}
 
-	var end model.Time
+	var end time.Time
 	if t := r.FormValue("end"); t != "" {
 		var err error
 		end, err = parseTime(t)
@@ -331,10 +340,10 @@ func (api *API) series(r *http.Request) (interface{}, *apiError) {
 			return nil, &apiError{errorBadData, err}
 		}
 	} else {
-		end = model.Latest
+		end = maxTime
 	}
 
-	var matcherSets []metric.LabelMatchers
+	var matcherSets [][]*labels.Matcher
 	for _, s := range r.Form["match[]"] {
 		matchers, err := promql.ParseMetricSelector(s)
 		if err != nil {
@@ -343,57 +352,40 @@ func (api *API) series(r *http.Request) (interface{}, *apiError) {
 		matcherSets = append(matcherSets, matchers)
 	}
 
-	q, err := api.Storage.Querier()
+	q, err := api.Queryable.Querier(r.Context(), timestamp.FromTime(start), timestamp.FromTime(end))
 	if err != nil {
 		return nil, &apiError{errorExec, err}
 	}
 	defer q.Close()
 
-	res, err := q.MetricsForLabelMatchers(r.Context(), start, end, matcherSets...)
-	if err != nil {
-		return nil, &apiError{errorExec, err}
+	var set storage.SeriesSet
+
+	for _, mset := range matcherSets {
+		set = storage.DeduplicateSeriesSet(set, q.Select(mset...))
 	}
 
-	metrics := make([]model.Metric, 0, len(res))
-	for _, met := range res {
-		metrics = append(metrics, met.Metric)
+	metrics := []labels.Labels{}
+
+	for set.Next() {
+		metrics = append(metrics, set.At().Labels())
 	}
+	if set.Err() != nil {
+		return nil, &apiError{errorExec, set.Err()}
+	}
+
 	return metrics, nil
 }
 
 func (api *API) dropSeries(r *http.Request) (interface{}, *apiError) {
-	r.ParseForm()
-	if len(r.Form["match[]"]) == 0 {
-		return nil, &apiError{errorBadData, fmt.Errorf("no match[] parameter provided")}
-	}
-
-	numDeleted := 0
-	for _, s := range r.Form["match[]"] {
-		matchers, err := promql.ParseMetricSelector(s)
-		if err != nil {
-			return nil, &apiError{errorBadData, err}
-		}
-		n, err := api.Storage.DropMetricsForLabelMatchers(context.TODO(), matchers...)
-		if err != nil {
-			return nil, &apiError{errorExec, err}
-		}
-		numDeleted += n
-	}
-
-	res := struct {
-		NumDeleted int `json:"numDeleted"`
-	}{
-		NumDeleted: numDeleted,
-	}
-	return res, nil
+	return nil, &apiError{errorInternal, fmt.Errorf("not implemented")}
 }
 
 // Target has the information for one target.
 type Target struct {
 	// Labels before any processing.
-	DiscoveredLabels model.LabelSet `json:"discoveredLabels"`
+	DiscoveredLabels map[string]string `json:"discoveredLabels"`
 	// Any labels that are added to this target and its metrics.
-	Labels model.LabelSet `json:"labels"`
+	Labels map[string]string `json:"labels"`
 
 	ScrapeURL string `json:"scrapeUrl"`
 
@@ -419,8 +411,8 @@ func (api *API) targets(r *http.Request) (interface{}, *apiError) {
 		}
 
 		res.ActiveTargets[i] = &Target{
-			DiscoveredLabels: t.DiscoveredLabels(),
-			Labels:           t.Labels(),
+			DiscoveredLabels: t.DiscoveredLabels().Map(),
+			Labels:           t.Labels().Map(),
 			ScrapeURL:        t.URL().String(),
 			LastError:        lastErrStr,
 			LastScrape:       t.LastScrape(),
@@ -470,31 +462,32 @@ func (api *API) remoteRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := remote.ReadResponse{
-		Results: make([]*remote.QueryResult, len(req.Queries)),
+	resp := prompb.ReadResponse{
+		Results: make([]*prompb.QueryResult, len(req.Queries)),
 	}
 	for i, query := range req.Queries {
-		querier, err := api.Storage.Querier()
+		from, through, matchers, err := remote.FromQuery(query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		querier, err := api.Queryable.Querier(r.Context(), from, through)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer querier.Close()
 
-		from, through, matchers, err := remote.FromQuery(query)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
 		// Change equality matchers which match external labels
 		// to a matcher that looks for an empty label,
 		// as that label should not be present in the storage.
 		externalLabels := api.config().GlobalConfig.ExternalLabels.Clone()
-		filteredMatchers := make([]*metric.LabelMatcher, 0, len(matchers))
+		filteredMatchers := make([]*labels.Matcher, 0, len(matchers))
 		for _, m := range matchers {
-			value := externalLabels[m.Name]
-			if m.Type == metric.Equal && value == m.Value {
-				matcher, err := metric.NewLabelMatcher(metric.Equal, m.Name, "")
+			value := externalLabels[model.LabelName(m.Name)]
+			if m.Type == labels.MatchEqual && value == model.LabelValue(m.Value) {
+				matcher, err := labels.NewMatcher(labels.MatchEqual, m.Name, "")
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
@@ -505,31 +498,26 @@ func (api *API) remoteRead(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		iters, err := querier.QueryRange(r.Context(), from, through, filteredMatchers...)
+		resp.Results[i], err = remote.ToQueryResult(querier.Select(filteredMatchers...))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		resp.Results[i] = remote.ToQueryResult(remote.IteratorsToMatrix(iters, metric.Interval{
-			OldestInclusive: from,
-			NewestInclusive: through,
-		}))
+		// Add external labels back in, in sorted order.
+		sortedExternalLabels := make([]*prompb.Label, 0, len(externalLabels))
+		for name, value := range externalLabels {
+			sortedExternalLabels = append(sortedExternalLabels, &prompb.Label{
+				Name:  string(name),
+				Value: string(value),
+			})
+		}
+		sort.Slice(sortedExternalLabels, func(i, j int) bool {
+			return sortedExternalLabels[i].Name < sortedExternalLabels[j].Name
+		})
+
 		for _, ts := range resp.Results[i].Timeseries {
-			globalUsed := map[string]struct{}{}
-			for _, l := range ts.Labels {
-				if _, ok := externalLabels[model.LabelName(l.Name)]; ok {
-					globalUsed[l.Name] = struct{}{}
-				}
-			}
-			for ln, lv := range externalLabels {
-				if _, ok := globalUsed[string(ln)]; !ok {
-					ts.Labels = append(ts.Labels, &remote.LabelPair{
-						Name:  string(ln),
-						Value: string(lv),
-					})
-				}
-			}
+			ts.Labels = mergeLabels(ts.Labels, sortedExternalLabels)
 		}
 	}
 
@@ -537,6 +525,33 @@ func (api *API) remoteRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+// mergeLabels merges two sets of sorted proto labels, preferring those in
+// primary to those in secondary when there is an overlap.
+func mergeLabels(primary, secondary []*prompb.Label) []*prompb.Label {
+	result := make([]*prompb.Label, 0, len(primary)+len(secondary))
+	i, j := 0, 0
+	for i < len(primary) && j < len(secondary) {
+		if primary[i].Name < secondary[j].Name {
+			result = append(result, primary[i])
+			i++
+		} else if primary[i].Name > secondary[j].Name {
+			result = append(result, secondary[j])
+			j++
+		} else {
+			result = append(result, primary[i])
+			i++
+			j++
+		}
+	}
+	for ; i < len(primary); i++ {
+		result = append(result, primary[i])
+	}
+	for ; j < len(secondary); j++ {
+		result = append(result, secondary[j])
+	}
+	return result
 }
 
 func respond(w http.ResponseWriter, data interface{}) {
@@ -583,18 +598,15 @@ func respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
 	w.Write(b)
 }
 
-func parseTime(s string) (model.Time, error) {
+func parseTime(s string) (time.Time, error) {
 	if t, err := strconv.ParseFloat(s, 64); err == nil {
-		ts := t * float64(time.Second)
-		if ts > float64(math.MaxInt64) || ts < float64(math.MinInt64) {
-			return 0, fmt.Errorf("cannot parse %q to a valid timestamp. It overflows int64", s)
-		}
-		return model.TimeFromUnixNano(int64(ts)), nil
+		s, ns := math.Modf(t)
+		return time.Unix(int64(s), int64(ns*float64(time.Second))), nil
 	}
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return model.TimeFromUnixNano(t.UnixNano()), nil
+		return t, nil
 	}
-	return 0, fmt.Errorf("cannot parse %q to a valid timestamp", s)
+	return time.Time{}, fmt.Errorf("cannot parse %q to a valid timestamp", s)
 }
 
 func parseDuration(s string) (time.Duration, error) {

@@ -16,7 +16,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/promql"
 )
 
@@ -25,38 +25,18 @@ func TestAlertingRuleHTMLSnippet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule := NewAlertingRule("testrule", expr, 0, model.LabelSet{"html": "<b>BOLD</b>"}, model.LabelSet{"html": "<b>BOLD</b>"})
+	rule := NewAlertingRule("testrule", expr, 0, labels.FromStrings("html", "<b>BOLD</b>"), labels.FromStrings("html", "<b>BOLD</b>"), nil)
 
-	const want = `ALERT <a href="/test/prefix/graph?g0.expr=ALERTS%7Balertname%3D%22testrule%22%7D&g0.tab=1">testrule</a>
-  IF <a href="/test/prefix/graph?g0.expr=foo%7Bhtml%3D%22%3Cb%3EBOLD%3Cb%3E%22%7D&g0.tab=1">foo{html=&#34;&lt;b&gt;BOLD&lt;b&gt;&#34;}</a>
-  LABELS {html=&#34;&lt;b&gt;BOLD&lt;/b&gt;&#34;}
-  ANNOTATIONS {html=&#34;&lt;b&gt;BOLD&lt;/b&gt;&#34;}`
+	const want = `alert: <a href="/test/prefix/graph?g0.expr=ALERTS%7Balertname%3D%22testrule%22%7D&g0.tab=1">testrule</a>
+expr: <a href="/test/prefix/graph?g0.expr=foo%7Bhtml%3D%22%3Cb%3EBOLD%3Cb%3E%22%7D&g0.tab=1">foo{html=&#34;&lt;b&gt;BOLD&lt;b&gt;&#34;}</a>
+labels:
+  html: '&lt;b&gt;BOLD&lt;/b&gt;'
+annotations:
+  html: '&lt;b&gt;BOLD&lt;/b&gt;'
+`
 
 	got := rule.HTMLSnippet("/test/prefix")
 	if got != want {
 		t.Fatalf("incorrect HTML snippet; want:\n\n|%v|\n\ngot:\n\n|%v|", want, got)
-	}
-}
-
-func TestCurrentAlertsClonesLabelsAndAnnotations(t *testing.T) {
-	r := AlertingRule{
-		active: map[model.Fingerprint]*Alert{
-			0: {
-				Labels:      model.LabelSet{"test_label": "test_label_value"},
-				Annotations: model.LabelSet{"test_annotation": "test_annotation_value"},
-			},
-		},
-	}
-
-	alerts := r.currentAlerts()
-	alerts[0].Labels["test_label"] = "new_label_value"
-	alerts[0].Annotations["test_annotation"] = "new_annotation_value"
-
-	alerts = r.currentAlerts()
-	if want, got := model.LabelValue("test_label_value"), alerts[0].Labels["test_label"]; want != got {
-		t.Fatalf("unexpected label value; want %q, got %q", want, got)
-	}
-	if want, got := model.LabelValue("test_annotation_value"), alerts[0].Annotations["test_annotation"]; want != got {
-		t.Fatalf("unexpected annotation value; want %q, got %q", want, got)
 	}
 }

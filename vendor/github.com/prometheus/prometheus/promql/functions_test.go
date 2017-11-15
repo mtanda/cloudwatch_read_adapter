@@ -17,8 +17,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/storage/local"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/timestamp"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func BenchmarkHoltWinters4Week5Min(b *testing.B) {
@@ -82,16 +83,24 @@ func TestDeriv(t *testing.T) {
 	// https://github.com/prometheus/prometheus/issues/2674#issuecomment-315439393
 	// This requires more precision than the usual test system offers,
 	// so we test it by hand.
-	storage, closer := local.NewTestStorage(t, 2)
-	defer closer.Close()
+	storage := testutil.NewStorage(t)
+	defer storage.Close()
 	engine := NewEngine(storage, nil)
 
-	metric := model.Metric{model.MetricNameLabel: model.LabelValue("foo")}
-	storage.Append(&model.Sample{Metric: metric, Timestamp: 1493712816939, Value: 1.0})
-	storage.Append(&model.Sample{Metric: metric, Timestamp: 1493712846939, Value: 1.0})
-	storage.WaitForIndexing()
+	a, err := storage.Appender()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	query, err := engine.NewInstantQuery("deriv(foo[30m])", 1493712846939)
+	metric := labels.FromStrings("__name__", "foo")
+	a.Add(metric, 1493712816939, 1.0)
+	a.Add(metric, 1493712846939, 1.0)
+
+	if err := a.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	query, err := engine.NewInstantQuery("deriv(foo[30m])", timestamp.Time(1493712846939))
 	if err != nil {
 		t.Fatalf("Error parsing query: %s", err)
 	}
@@ -100,10 +109,10 @@ func TestDeriv(t *testing.T) {
 		t.Fatalf("Error running query: %s", result.Err)
 	}
 	vec, _ := result.Vector()
-	if vec.Len() != 1 {
-		t.Fatalf("Expected 1 result, got %d", vec.Len())
+	if len(vec) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(vec))
 	}
-	if vec[0].Value != 0.0 {
-		t.Fatalf("Expected 0.0 as value, got %f", vec[0].Value)
+	if vec[0].V != 0.0 {
+		t.Fatalf("Expected 0.0 as value, got %f", vec[0].V)
 	}
 }

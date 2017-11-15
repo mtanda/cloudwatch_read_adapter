@@ -14,76 +14,42 @@
 package remote
 
 import (
-	"sync"
-
 	"github.com/prometheus/common/model"
-
-	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/storage"
 )
 
-// Writer allows queueing samples for remote writes.
-type Writer struct {
-	mtx    sync.RWMutex
-	queues []*QueueManager
+// Appender implements retrieval.Appendable.
+func (s *Storage) Appender() (storage.Appender, error) {
+	return s, nil
 }
 
-// ApplyConfig updates the state as the new config requires.
-func (w *Writer) ApplyConfig(conf *config.Config) error {
-	w.mtx.Lock()
-	defer w.mtx.Unlock()
-
-	newQueues := []*QueueManager{}
-	// TODO: we should only stop & recreate queues which have changes,
-	// as this can be quite disruptive.
-	for i, rwConf := range conf.RemoteWriteConfigs {
-		c, err := NewClient(i, &ClientConfig{
-			URL:              rwConf.URL,
-			Timeout:          rwConf.RemoteTimeout,
-			HTTPClientConfig: rwConf.HTTPClientConfig,
+// Add implements storage.Appender.
+func (s *Storage) Add(l labels.Labels, t int64, v float64) (uint64, error) {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+	for _, q := range s.queues {
+		q.Append(&model.Sample{
+			Metric:    labelsToMetric(l),
+			Timestamp: model.Time(t),
+			Value:     model.SampleValue(v),
 		})
-		if err != nil {
-			return err
-		}
-		newQueues = append(newQueues, NewQueueManager(
-			rwConf.QueueConfig,
-			conf.GlobalConfig.ExternalLabels,
-			rwConf.WriteRelabelConfigs,
-			c,
-		))
 	}
+	return 0, nil
+}
 
-	for _, q := range w.queues {
-		q.Stop()
-	}
+// AddFast implements storage.Appender.
+func (s *Storage) AddFast(l labels.Labels, _ uint64, t int64, v float64) error {
+	_, err := s.Add(l, t, v)
+	return err
+}
 
-	w.queues = newQueues
-	for _, q := range w.queues {
-		q.Start()
-	}
+// Commit implements storage.Appender.
+func (*Storage) Commit() error {
 	return nil
 }
 
-// Stop the background processing of the storage queues.
-func (w *Writer) Stop() {
-	for _, q := range w.queues {
-		q.Stop()
-	}
-}
-
-// Append implements storage.SampleAppender. Always returns nil.
-func (w *Writer) Append(smpl *model.Sample) error {
-	w.mtx.RLock()
-	defer w.mtx.RUnlock()
-
-	for _, q := range w.queues {
-		q.Append(smpl)
-	}
+// Rollback implements storage.Appender.
+func (*Storage) Rollback() error {
 	return nil
-}
-
-// NeedsThrottling implements storage.SampleAppender. It will always return
-// false as a remote storage drops samples on the floor if backlogging instead
-// of asking for throttling.
-func (w *Writer) NeedsThrottling() bool {
-	return false
 }

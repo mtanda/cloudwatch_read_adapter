@@ -15,6 +15,7 @@ package remote
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,19 +23,20 @@ import (
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/prompb"
 )
 
 type TestStorageClient struct {
-	receivedSamples map[string]model.Samples
-	expectedSamples map[string]model.Samples
+	receivedSamples map[string][]*prompb.Sample
+	expectedSamples map[string][]*prompb.Sample
 	wg              sync.WaitGroup
 	mtx             sync.Mutex
 }
 
 func NewTestStorageClient() *TestStorageClient {
 	return &TestStorageClient{
-		receivedSamples: map[string]model.Samples{},
-		expectedSamples: map[string]model.Samples{},
+		receivedSamples: map[string][]*prompb.Sample{},
+		expectedSamples: map[string][]*prompb.Sample{},
 	}
 }
 
@@ -43,8 +45,11 @@ func (c *TestStorageClient) expectSamples(ss model.Samples) {
 	defer c.mtx.Unlock()
 
 	for _, s := range ss {
-		ts := s.Metric.String()
-		c.expectedSamples[ts] = append(c.expectedSamples[ts], s)
+		ts := labelProtosToLabels(MetricToLabelProtos(s.Metric)).String()
+		c.expectedSamples[ts] = append(c.expectedSamples[ts], &prompb.Sample{
+			Timestamp: int64(s.Timestamp),
+			Value:     float64(s.Value),
+		})
 	}
 	c.wg.Add(len(ss))
 }
@@ -55,23 +60,24 @@ func (c *TestStorageClient) waitForExpectedSamples(t *testing.T) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 	for ts, expectedSamples := range c.expectedSamples {
-		for i, expected := range expectedSamples {
-			if !expected.Equal(c.receivedSamples[ts][i]) {
-				t.Fatalf("%d. Expected %v, got %v", i, expected, c.receivedSamples[ts][i])
-			}
+		if !reflect.DeepEqual(expectedSamples, c.receivedSamples[ts]) {
+			t.Fatalf("%s: Expected %v, got %v", ts, expectedSamples, c.receivedSamples[ts])
 		}
 	}
 }
 
-func (c *TestStorageClient) Store(ss model.Samples) error {
+func (c *TestStorageClient) Store(req *prompb.WriteRequest) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
-
-	for _, s := range ss {
-		ts := s.Metric.String()
-		c.receivedSamples[ts] = append(c.receivedSamples[ts], s)
+	count := 0
+	for _, ts := range req.Timeseries {
+		labels := labelProtosToLabels(ts.Labels).String()
+		for _, sample := range ts.Samples {
+			count++
+			c.receivedSamples[labels] = append(c.receivedSamples[labels], sample)
+		}
 	}
-	c.wg.Add(-len(ss))
+	c.wg.Add(-count)
 	return nil
 }
 
@@ -100,7 +106,7 @@ func TestSampleDelivery(t *testing.T) {
 
 	cfg := config.DefaultQueueConfig
 	cfg.MaxShards = 1
-	m := NewQueueManager(cfg, nil, nil, c)
+	m := NewQueueManager(nil, cfg, nil, nil, c)
 
 	// These should be received by the client.
 	for _, s := range samples[:len(samples)/2] {
@@ -134,7 +140,7 @@ func TestSampleDeliveryOrder(t *testing.T) {
 
 	c := NewTestStorageClient()
 	c.expectSamples(samples)
-	m := NewQueueManager(config.DefaultQueueConfig, nil, nil, c)
+	m := NewQueueManager(nil, config.DefaultQueueConfig, nil, nil, c)
 
 	// These should be received by the client.
 	for _, s := range samples {
@@ -162,7 +168,7 @@ func NewTestBlockedStorageClient() *TestBlockingStorageClient {
 	}
 }
 
-func (c *TestBlockingStorageClient) Store(s model.Samples) error {
+func (c *TestBlockingStorageClient) Store(_ *prompb.WriteRequest) error {
 	atomic.AddUint64(&c.numCalls, 1)
 	<-c.block
 	return nil
@@ -212,7 +218,7 @@ func TestSpawnNotMoreThanMaxConcurrentSendsGoroutines(t *testing.T) {
 	cfg := config.DefaultQueueConfig
 	cfg.MaxShards = 1
 	cfg.Capacity = n
-	m := NewQueueManager(cfg, nil, nil, c)
+	m := NewQueueManager(nil, cfg, nil, nil, c)
 
 	m.Start()
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Prometheus Authors
+// Copyright 2017 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -17,16 +17,19 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"sort"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
 	"github.com/prometheus/common/model"
 
-	"github.com/prometheus/prometheus/storage/metric"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/storage"
 )
 
 // DecodeReadRequest reads a remote.Request from a http.Request.
-func DecodeReadRequest(r *http.Request) (*ReadRequest, error) {
+func DecodeReadRequest(r *http.Request) (*prompb.ReadRequest, error) {
 	compressed, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
@@ -37,7 +40,7 @@ func DecodeReadRequest(r *http.Request) (*ReadRequest, error) {
 		return nil, err
 	}
 
-	var req ReadRequest
+	var req prompb.ReadRequest
 	if err := proto.Unmarshal(reqBuf, &req); err != nil {
 		return nil, err
 	}
@@ -46,7 +49,7 @@ func DecodeReadRequest(r *http.Request) (*ReadRequest, error) {
 }
 
 // EncodeReadResponse writes a remote.Response to a http.ResponseWriter.
-func EncodeReadResponse(resp *ReadResponse, w http.ResponseWriter) error {
+func EncodeReadResponse(resp *prompb.ReadResponse, w http.ResponseWriter) error {
 	data, err := proto.Marshal(resp)
 	if err != nil {
 		return err
@@ -61,18 +64,18 @@ func EncodeReadResponse(resp *ReadResponse, w http.ResponseWriter) error {
 }
 
 // ToWriteRequest converts an array of samples into a WriteRequest proto.
-func ToWriteRequest(samples []*model.Sample) *WriteRequest {
-	req := &WriteRequest{
-		Timeseries: make([]*TimeSeries, 0, len(samples)),
+func ToWriteRequest(samples []*model.Sample) *prompb.WriteRequest {
+	req := &prompb.WriteRequest{
+		Timeseries: make([]*prompb.TimeSeries, 0, len(samples)),
 	}
 
 	for _, s := range samples {
-		ts := TimeSeries{
-			Labels: ToLabelPairs(s.Metric),
-			Samples: []*Sample{
+		ts := prompb.TimeSeries{
+			Labels: MetricToLabelProtos(s.Metric),
+			Samples: []*prompb.Sample{
 				{
-					Value:       float64(s.Value),
-					TimestampMs: int64(s.Timestamp),
+					Value:     float64(s.Value),
+					Timestamp: int64(s.Timestamp),
 				},
 			},
 		}
@@ -83,110 +86,224 @@ func ToWriteRequest(samples []*model.Sample) *WriteRequest {
 }
 
 // ToQuery builds a Query proto.
-func ToQuery(from, to model.Time, matchers []*metric.LabelMatcher) (*Query, error) {
+func ToQuery(from, to int64, matchers []*labels.Matcher) (*prompb.Query, error) {
 	ms, err := toLabelMatchers(matchers)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Query{
-		StartTimestampMs: int64(from),
-		EndTimestampMs:   int64(to),
+	return &prompb.Query{
+		StartTimestampMs: from,
+		EndTimestampMs:   to,
 		Matchers:         ms,
 	}, nil
 }
 
 // FromQuery unpacks a Query proto.
-func FromQuery(req *Query) (model.Time, model.Time, []*metric.LabelMatcher, error) {
+func FromQuery(req *prompb.Query) (int64, int64, []*labels.Matcher, error) {
 	matchers, err := fromLabelMatchers(req.Matchers)
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	from := model.Time(req.StartTimestampMs)
-	to := model.Time(req.EndTimestampMs)
-	return from, to, matchers, nil
+	return req.StartTimestampMs, req.EndTimestampMs, matchers, nil
 }
 
 // ToQueryResult builds a QueryResult proto.
-func ToQueryResult(matrix model.Matrix) *QueryResult {
-	resp := &QueryResult{}
-	for _, ss := range matrix {
-		ts := TimeSeries{
-			Labels:  ToLabelPairs(ss.Metric),
-			Samples: make([]*Sample, 0, len(ss.Values)),
-		}
-		for _, s := range ss.Values {
-			ts.Samples = append(ts.Samples, &Sample{
-				Value:       float64(s.Value),
-				TimestampMs: int64(s.Timestamp),
+func ToQueryResult(ss storage.SeriesSet) (*prompb.QueryResult, error) {
+	resp := &prompb.QueryResult{}
+	for ss.Next() {
+		series := ss.At()
+		iter := series.Iterator()
+		samples := []*prompb.Sample{}
+
+		for iter.Next() {
+			ts, val := iter.At()
+			samples = append(samples, &prompb.Sample{
+				Timestamp: ts,
+				Value:     val,
 			})
 		}
-		resp.Timeseries = append(resp.Timeseries, &ts)
+		if err := iter.Err(); err != nil {
+			return nil, err
+		}
+
+		resp.Timeseries = append(resp.Timeseries, &prompb.TimeSeries{
+			Labels:  labelsToLabelsProto(series.Labels()),
+			Samples: samples,
+		})
 	}
-	return resp
+	if err := ss.Err(); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 // FromQueryResult unpacks a QueryResult proto.
-func FromQueryResult(resp *QueryResult) model.Matrix {
-	m := make(model.Matrix, 0, len(resp.Timeseries))
-	for _, ts := range resp.Timeseries {
-		var ss model.SampleStream
-		ss.Metric = FromLabelPairs(ts.Labels)
-		ss.Values = make([]model.SamplePair, 0, len(ts.Samples))
-		for _, s := range ts.Samples {
-			ss.Values = append(ss.Values, model.SamplePair{
-				Value:     model.SampleValue(s.Value),
-				Timestamp: model.Time(s.TimestampMs),
-			})
+func FromQueryResult(res *prompb.QueryResult) storage.SeriesSet {
+	series := make([]storage.Series, 0, len(res.Timeseries))
+	for _, ts := range res.Timeseries {
+		labels := labelProtosToLabels(ts.Labels)
+		if err := validateLabelsAndMetricName(labels); err != nil {
+			return errSeriesSet{err: err}
 		}
-		m = append(m, &ss)
-	}
 
-	return m
-}
-
-func toLabelMatchers(matchers []*metric.LabelMatcher) ([]*LabelMatcher, error) {
-	result := make([]*LabelMatcher, 0, len(matchers))
-	for _, matcher := range matchers {
-		var mType MatchType
-		switch matcher.Type {
-		case metric.Equal:
-			mType = MatchType_EQUAL
-		case metric.NotEqual:
-			mType = MatchType_NOT_EQUAL
-		case metric.RegexMatch:
-			mType = MatchType_REGEX_MATCH
-		case metric.RegexNoMatch:
-			mType = MatchType_REGEX_NO_MATCH
-		default:
-			return nil, fmt.Errorf("invalid matcher type")
-		}
-		result = append(result, &LabelMatcher{
-			Type:  mType,
-			Name:  string(matcher.Name),
-			Value: string(matcher.Value),
+		series = append(series, &concreteSeries{
+			labels:  labels,
+			samples: ts.Samples,
 		})
 	}
-	return result, nil
+	sort.Sort(byLabel(series))
+	return &concreteSeriesSet{
+		series: series,
+	}
 }
 
-func fromLabelMatchers(matchers []*LabelMatcher) ([]*metric.LabelMatcher, error) {
-	result := make(metric.LabelMatchers, 0, len(matchers))
-	for _, matcher := range matchers {
-		var mtype metric.MatchType
-		switch matcher.Type {
-		case MatchType_EQUAL:
-			mtype = metric.Equal
-		case MatchType_NOT_EQUAL:
-			mtype = metric.NotEqual
-		case MatchType_REGEX_MATCH:
-			mtype = metric.RegexMatch
-		case MatchType_REGEX_NO_MATCH:
-			mtype = metric.RegexNoMatch
+// errSeriesSet implements storage.SeriesSet, just returning an error.
+type errSeriesSet struct {
+	err error
+}
+
+func (errSeriesSet) Next() bool {
+	return false
+}
+
+func (errSeriesSet) At() storage.Series {
+	return nil
+}
+
+func (e errSeriesSet) Err() error {
+	return e.err
+}
+
+// concreteSeriesSet implements storage.SeriesSet.
+type concreteSeriesSet struct {
+	cur    int
+	series []storage.Series
+}
+
+func (c *concreteSeriesSet) Next() bool {
+	c.cur++
+	return c.cur-1 < len(c.series)
+}
+
+func (c *concreteSeriesSet) At() storage.Series {
+	return c.series[c.cur-1]
+}
+
+func (c *concreteSeriesSet) Err() error {
+	return nil
+}
+
+// concreteSeries implementes storage.Series.
+type concreteSeries struct {
+	labels  labels.Labels
+	samples []*prompb.Sample
+}
+
+func (c *concreteSeries) Labels() labels.Labels {
+	return c.labels
+}
+
+func (c *concreteSeries) Iterator() storage.SeriesIterator {
+	return newConcreteSeriersIterator(c)
+}
+
+// concreteSeriesIterator implements storage.SeriesIterator.
+type concreteSeriesIterator struct {
+	cur    int
+	series *concreteSeries
+}
+
+func newConcreteSeriersIterator(series *concreteSeries) storage.SeriesIterator {
+	return &concreteSeriesIterator{
+		cur:    -1,
+		series: series,
+	}
+}
+
+// Seek implements storage.SeriesIterator.
+func (c *concreteSeriesIterator) Seek(t int64) bool {
+	c.cur = sort.Search(len(c.series.samples), func(n int) bool {
+		return c.series.samples[n].Timestamp >= t
+	})
+	return c.cur < len(c.series.samples)
+}
+
+// At implements storage.SeriesIterator.
+func (c *concreteSeriesIterator) At() (t int64, v float64) {
+	s := c.series.samples[c.cur]
+	return s.Timestamp, s.Value
+}
+
+// Next implements storage.SeriesIterator.
+func (c *concreteSeriesIterator) Next() bool {
+	c.cur++
+	return c.cur < len(c.series.samples)
+}
+
+// Err implements storage.SeriesIterator.
+func (c *concreteSeriesIterator) Err() error {
+	return nil
+}
+
+// validateLabelsAndMetricName validates the label names/values and metric names returned from remote read.
+func validateLabelsAndMetricName(ls labels.Labels) error {
+	for _, l := range ls {
+		if l.Name == labels.MetricName && !model.IsValidMetricName(model.LabelValue(l.Value)) {
+			return fmt.Errorf("Invalid metric name: %v", l.Value)
+		}
+		if !model.LabelName(l.Name).IsValid() {
+			return fmt.Errorf("Invalid label name: %v", l.Name)
+		}
+		if !model.LabelValue(l.Value).IsValid() {
+			return fmt.Errorf("Invalid label value: %v", l.Value)
+		}
+	}
+	return nil
+}
+
+func toLabelMatchers(matchers []*labels.Matcher) ([]*prompb.LabelMatcher, error) {
+	pbMatchers := make([]*prompb.LabelMatcher, 0, len(matchers))
+	for _, m := range matchers {
+		var mType prompb.LabelMatcher_Type
+		switch m.Type {
+		case labels.MatchEqual:
+			mType = prompb.LabelMatcher_EQ
+		case labels.MatchNotEqual:
+			mType = prompb.LabelMatcher_NEQ
+		case labels.MatchRegexp:
+			mType = prompb.LabelMatcher_RE
+		case labels.MatchNotRegexp:
+			mType = prompb.LabelMatcher_NRE
 		default:
 			return nil, fmt.Errorf("invalid matcher type")
 		}
-		matcher, err := metric.NewLabelMatcher(mtype, model.LabelName(matcher.Name), model.LabelValue(matcher.Value))
+		pbMatchers = append(pbMatchers, &prompb.LabelMatcher{
+			Type:  mType,
+			Name:  m.Name,
+			Value: m.Value,
+		})
+	}
+	return pbMatchers, nil
+}
+
+func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]*labels.Matcher, error) {
+	result := make([]*labels.Matcher, 0, len(matchers))
+	for _, matcher := range matchers {
+		var mtype labels.MatchType
+		switch matcher.Type {
+		case prompb.LabelMatcher_EQ:
+			mtype = labels.MatchEqual
+		case prompb.LabelMatcher_NEQ:
+			mtype = labels.MatchNotEqual
+		case prompb.LabelMatcher_RE:
+			mtype = labels.MatchRegexp
+		case prompb.LabelMatcher_NRE:
+			mtype = labels.MatchNotRegexp
+		default:
+			return nil, fmt.Errorf("invalid matcher type")
+		}
+		matcher, err := labels.NewMatcher(mtype, matcher.Name, matcher.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -195,22 +312,56 @@ func fromLabelMatchers(matchers []*LabelMatcher) ([]*metric.LabelMatcher, error)
 	return result, nil
 }
 
-// ToLabelPairs builds a []LabelPair from a model.Metric
-func ToLabelPairs(metric model.Metric) []*LabelPair {
-	labelPairs := make([]*LabelPair, 0, len(metric))
+// MetricToLabelProtos builds a []*prompb.Label from a model.Metric
+func MetricToLabelProtos(metric model.Metric) []*prompb.Label {
+	labels := make([]*prompb.Label, 0, len(metric))
 	for k, v := range metric {
-		labelPairs = append(labelPairs, &LabelPair{
+		labels = append(labels, &prompb.Label{
 			Name:  string(k),
 			Value: string(v),
 		})
 	}
-	return labelPairs
+	sort.Slice(labels, func(i int, j int) bool {
+		return labels[i].Name < labels[j].Name
+	})
+	return labels
 }
 
-// FromLabelPairs unpack a []LabelPair to a model.Metric
-func FromLabelPairs(labelPairs []*LabelPair) model.Metric {
+// LabelProtosToMetric unpack a []*prompb.Label to a model.Metric
+func LabelProtosToMetric(labelPairs []*prompb.Label) model.Metric {
 	metric := make(model.Metric, len(labelPairs))
 	for _, l := range labelPairs {
+		metric[model.LabelName(l.Name)] = model.LabelValue(l.Value)
+	}
+	return metric
+}
+
+func labelProtosToLabels(labelPairs []*prompb.Label) labels.Labels {
+	result := make(labels.Labels, 0, len(labelPairs))
+	for _, l := range labelPairs {
+		result = append(result, labels.Label{
+			Name:  l.Name,
+			Value: l.Value,
+		})
+	}
+	sort.Sort(result)
+	return result
+}
+
+func labelsToLabelsProto(labels labels.Labels) []*prompb.Label {
+	result := make([]*prompb.Label, 0, len(labels))
+	for _, l := range labels {
+		result = append(result, &prompb.Label{
+			Name:  l.Name,
+			Value: l.Value,
+		})
+	}
+	return result
+}
+
+func labelsToMetric(ls labels.Labels) model.Metric {
+	metric := make(model.Metric, len(ls))
+	for _, l := range ls {
 		metric[model.LabelName(l.Name)] = model.LabelValue(l.Value)
 	}
 	return metric

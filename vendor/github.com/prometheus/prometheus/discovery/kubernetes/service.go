@@ -14,17 +14,19 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
 
-	"github.com/prometheus/common/log"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/util/strutil"
-	"golang.org/x/net/context"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/util/strutil"
 )
 
 // Service implements discovery of Kubernetes services.
@@ -36,6 +38,9 @@ type Service struct {
 
 // NewService returns a new service discovery.
 func NewService(l log.Logger, inf cache.SharedInformer) *Service {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
 	return &Service{logger: l, informer: inf, store: inf.GetStore()}
 }
 
@@ -66,7 +71,7 @@ func (s *Service) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			svc, err := convertToService(o)
 			if err != nil {
-				s.logger.With("err", err).Errorln("converting to Service object failed")
+				level.Error(s.logger).Log("msg", "converting to Service object failed", "err", err)
 				return
 			}
 			send(s.buildService(svc))
@@ -76,7 +81,7 @@ func (s *Service) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			svc, err := convertToService(o)
 			if err != nil {
-				s.logger.With("err", err).Errorln("converting to Service object failed")
+				level.Error(s.logger).Log("msg", "converting to Service object failed", "err", err)
 				return
 			}
 			send(&config.TargetGroup{Source: serviceSource(svc)})
@@ -86,7 +91,7 @@ func (s *Service) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			svc, err := convertToService(o)
 			if err != nil {
-				s.logger.With("err", err).Errorln("converting to Service object failed")
+				level.Error(s.logger).Log("msg", "converting to Service object failed", "err", err)
 				return
 			}
 			send(s.buildService(svc))
