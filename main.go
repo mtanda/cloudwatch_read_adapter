@@ -64,7 +64,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		}
 	}
 	if namespace == "" {
-		level.Warn(logger).Log("msg", "namespace is required")
+		level.Debug(logger).Log("msg", "namespace is required")
 		return result
 	}
 
@@ -366,7 +366,7 @@ func main() {
 	flag.Parse()
 
 	logLevel := promlog.AllowedLevel{}
-	logLevel.Set("debug")
+	logLevel.Set("info")
 	logger := promlog.New(logLevel)
 
 	readCfg, err := LoadConfig(cfg.configFile)
