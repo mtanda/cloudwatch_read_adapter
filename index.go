@@ -135,14 +135,14 @@ func (indexer *Indexer) index() {
 					ref, err := app.Add(l, now.Unix()*1000, 0.0)
 					if err != nil {
 						level.Error(indexer.logger).Log("err", err)
-						continue
+						panic(err)
 					}
 					_ = ref
 				}
 
 				if err := app.Commit(); err != nil {
 					level.Error(indexer.logger).Log("err", err)
-					continue
+					panic(err)
 				}
 			}
 

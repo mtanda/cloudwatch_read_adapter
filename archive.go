@@ -158,7 +158,8 @@ func (archiver *Archiver) archive() {
 							matchedLabelsList, err = archiver.getMatchedLabelsList(startTime, endTime)
 							if err != nil {
 								level.Error(archiver.logger).Log("err", err)
-								continue
+								//continue
+							        panic(err) // TODO: fix
 							}
 
 							if archiver.currentNamespaceIndex == len(archiver.namespace) {
