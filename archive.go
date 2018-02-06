@@ -37,7 +37,7 @@ type Archiver struct {
 	logger                log.Logger
 }
 
-func NewArchiver(ctx context.Context, cfg ArchiveConfig, indexer *Indexer, logger log.Logger) (*Archiver, error) {
+func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, indexer *Indexer, logger log.Logger) (*Archiver, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -55,7 +55,7 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, indexer *Indexer, logge
 	cloudwatch := cloudwatch.New(sess, awsCfg)
 
 	db, err := tsdb.Open(
-		"./data/archive",
+		storagePath+"/archive",
 		logger,
 		prometheus.NewRegistry(), // TODO: check
 		&tsdb.Options{

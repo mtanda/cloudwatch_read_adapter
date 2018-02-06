@@ -31,7 +31,7 @@ type Indexer struct {
 	logger               log.Logger
 }
 
-func NewIndexer(ctx context.Context, cfg IndexConfig, logger log.Logger) (*Indexer, error) {
+func NewIndexer(ctx context.Context, cfg IndexConfig, storagePath string, logger log.Logger) (*Indexer, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -49,7 +49,7 @@ func NewIndexer(ctx context.Context, cfg IndexConfig, logger log.Logger) (*Index
 	cloudwatch := cloudwatch.New(sess, awsCfg)
 
 	db, err := tsdb.Open(
-		"./data/index",
+		storagePath+"/index",
 		logger,
 		prometheus.DefaultRegisterer,
 		&tsdb.Options{

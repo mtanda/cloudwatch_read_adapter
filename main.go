@@ -44,8 +44,9 @@ func init() {
 }
 
 type config struct {
-	listenAddr string
-	configFile string
+	listenAddr  string
+	configFile  string
+	storagePath string
 }
 
 func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.Logger) []*prompb.TimeSeries {
@@ -360,6 +361,8 @@ func main() {
 	var cfg config
 	flag.StringVar(&cfg.listenAddr, "web.listen-address", ":9201", "Address to listen on for web endpoints.")
 	flag.StringVar(&cfg.configFile, "config.file", "./cloudwatch_read_adapter.yml", "Configuration file path.")
+	flag.StringVar(&cfg.storagePath, "storage.tsdb.path", "./data", "Base path for metrics storage.")
+
 	flag.Parse()
 
 	logLevel := promlog.AllowedLevel{}
@@ -408,13 +411,13 @@ func main() {
 		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, &region)
 	}
 
-	indexer, err := NewIndexer(ctx, readCfg.Targets[0].Index, log.With(logger, "component", "indexer"))
+	indexer, err := NewIndexer(ctx, readCfg.Targets[0].Index, cfg.storagePath, log.With(logger, "component", "indexer"))
 	if err != nil {
 		level.Error(logger).Log("err", err)
 		panic(err)
 	}
 	indexer.start()
-	archiver, err := NewArchiver(ctx, readCfg.Targets[0].Archive, indexer, log.With(logger, "component", "archiver"))
+	archiver, err := NewArchiver(ctx, readCfg.Targets[0].Archive, cfg.storagePath, indexer, log.With(logger, "component", "archiver"))
 	if err != nil {
 		level.Error(logger).Log("err", err)
 		panic(err)
