@@ -163,19 +163,8 @@ func (archiver *Archiver) archive() {
 
 						archiver.currentLabelIndex++
 						if archiver.currentLabelIndex == len(matchedLabelsList) {
-							archiver.currentLabelIndex = 0
-							archiver.currentNamespaceIndex++
-
-							level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", *archiver.namespace[archiver.currentNamespaceIndex]))
-							matchedLabelsList, err = archiver.getMatchedLabelsList(startTime, endTime)
-							if err != nil {
-								level.Error(archiver.logger).Log("err", err)
-								//continue
-								panic(err) // TODO: fix
-							}
-							archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
-
 							if archiver.currentNamespaceIndex == len(archiver.namespace) {
+								// archive finished
 								ft.Stop()
 								wt.Stop()
 
@@ -187,9 +176,22 @@ func (archiver *Archiver) archive() {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err)
 								}
-								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
-								level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
+								//level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 								wg.Done()
+							} else {
+								// archive next namespace
+								archiver.currentLabelIndex = 0
+								archiver.currentNamespaceIndex++
+
+								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", *archiver.namespace[archiver.currentNamespaceIndex]))
+								matchedLabelsList, err = archiver.getMatchedLabelsList(startTime, endTime)
+								if err != nil {
+									level.Error(archiver.logger).Log("err", err)
+									//continue
+									panic(err) // TODO: fix
+								}
+								archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 							}
 						}
 					case <-wt.C:
