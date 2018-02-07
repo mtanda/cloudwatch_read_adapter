@@ -105,6 +105,10 @@ func (indexer *Indexer) index() {
 
 			now := time.Now().UTC()
 			for _, namespace := range indexer.namespace {
+				indexerTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
+				indexerTargetsTotal.WithLabelValues(*namespace).Set(float64(0))
+			}
+			for _, namespace := range indexer.namespace {
 				level.Info(indexer.logger).Log("msg", fmt.Sprintf("indexing namespace = %s", *namespace))
 
 				var resp cloudwatch.ListMetricsOutput
@@ -126,6 +130,7 @@ func (indexer *Indexer) index() {
 				}
 
 				app := indexer.db.Appender()
+				indexerTargetsTotal.WithLabelValues(*namespace).Set(float64(len(resp.Metrics)))
 				for _, metric := range resp.Metrics {
 					l := make(labels.Labels, 0)
 					l = append(l, labels.Label{Name: "Region", Value: *indexer.region})
@@ -146,6 +151,7 @@ func (indexer *Indexer) index() {
 					level.Error(indexer.logger).Log("err", err)
 					panic(err)
 				}
+				indexerTargetsProgress.WithLabelValues(*namespace).Set(float64(len(resp.Metrics)))
 			}
 
 			indexer.indexedTimestampTo = now

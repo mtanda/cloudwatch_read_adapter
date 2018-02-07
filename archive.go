@@ -131,6 +131,11 @@ func (archiver *Archiver) archive() {
 				break
 			}
 
+			for _, namespace := range archiver.namespace {
+				archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
+				archiverTargetsTotal.WithLabelValues(*namespace).Set(float64(0))
+			}
+
 			wg := &sync.WaitGroup{}
 			app := archiver.db.Appender()
 			//ft := time.NewTicker(1 * time.Minute) // TODO: time.Sleep(archiveTime / time.Duration(len(matchedLabelsList)))
@@ -145,6 +150,7 @@ func (archiver *Archiver) archive() {
 					level.Error(archiver.logger).Log("err", err)
 					return // TODO: retry?
 				}
+				archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 
 				for {
 					select {
@@ -167,6 +173,7 @@ func (archiver *Archiver) archive() {
 								//continue
 								panic(err) // TODO: fix
 							}
+							archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 
 							if archiver.currentNamespaceIndex == len(archiver.namespace) {
 								ft.Stop()
@@ -180,6 +187,7 @@ func (archiver *Archiver) archive() {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err)
 								}
+								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
 								level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 								wg.Done()
 							}
@@ -194,6 +202,7 @@ func (archiver *Archiver) archive() {
 							level.Error(archiver.logger).Log("err", err)
 							panic(err)
 						}
+						archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(archiver.currentLabelIndex))
 						level.Info(archiver.logger).Log("namespace", *namespace, "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 					}
 				}
