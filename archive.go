@@ -170,7 +170,7 @@ func (archiver *Archiver) archive() {
 
 						archiver.currentLabelIndex++
 						if archiver.currentLabelIndex == len(matchedLabelsList) {
-							if archiver.currentNamespaceIndex == len(archiver.namespace) {
+							if archiver.currentNamespaceIndex == len(archiver.namespace)-1 {
 								// archive finished
 								ft.Stop()
 								wt.Stop()
@@ -183,9 +183,10 @@ func (archiver *Archiver) archive() {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err)
 								}
-								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
-								//level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
+								level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 
+								// reset index for next archiving cycle
 								archiver.currentLabelIndex = 0
 								archiver.currentNamespaceIndex = 0
 
