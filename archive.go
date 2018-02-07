@@ -34,6 +34,7 @@ type Archiver struct {
 	archivedTimestamp     time.Time
 	currentNamespaceIndex int
 	currentLabelIndex     int
+	storagePath           string
 	logger                log.Logger
 }
 
@@ -84,6 +85,7 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 		archivedTimestamp:     time.Unix(0, 0),
 		currentNamespaceIndex: 0,
 		currentLabelIndex:     0,
+		storagePath:           storagePath,
 		logger:                logger,
 	}, nil
 }
@@ -159,7 +161,7 @@ func (archiver *Archiver) archive() {
 							if err != nil {
 								level.Error(archiver.logger).Log("err", err)
 								//continue
-							        panic(err) // TODO: fix
+								panic(err) // TODO: fix
 							}
 
 							if archiver.currentNamespaceIndex == len(archiver.namespace) {
@@ -331,7 +333,7 @@ func (archiver *Archiver) saveState(timestamp int64, namespace int, index int) e
 		return err
 	}
 
-	err = ioutil.WriteFile("./data/archiver_state.json", buf, 0644)
+	err = ioutil.WriteFile(archiver.storagePath+"/archiver_state.json", buf, 0644)
 	if err != nil {
 		return err
 	}
@@ -340,7 +342,7 @@ func (archiver *Archiver) saveState(timestamp int64, namespace int, index int) e
 }
 
 func (archiver *Archiver) loadState() (*State, error) {
-	buf, err := ioutil.ReadFile("./data/archiver_state.json")
+	buf, err := ioutil.ReadFile(archiver.storagePath + "/archiver_state.json")
 	if err != nil {
 		return nil, err
 	}

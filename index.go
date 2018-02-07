@@ -28,6 +28,7 @@ type Indexer struct {
 	interval             time.Duration
 	indexedTimestampFrom time.Time // TODO: save this status on file
 	indexedTimestampTo   time.Time
+	storagePath          string
 	logger               log.Logger
 }
 
@@ -76,6 +77,7 @@ func NewIndexer(ctx context.Context, cfg IndexConfig, storagePath string, logger
 		interval:             time.Duration(10) * time.Minute,
 		indexedTimestampFrom: time.Unix(0, 0),
 		indexedTimestampTo:   time.Unix(0, 0),
+		storagePath:          storagePath,
 		logger:               logger,
 	}, nil
 }
@@ -188,7 +190,7 @@ func (indexer *Indexer) saveState(timestamp int64) error {
 		return err
 	}
 
-	err = ioutil.WriteFile("./data/indexer_state.json", buf, 0644)
+	err = ioutil.WriteFile(indexer.storagePath+"/indexer_state.json", buf, 0644)
 	if err != nil {
 		return err
 	}
@@ -197,7 +199,7 @@ func (indexer *Indexer) saveState(timestamp int64) error {
 }
 
 func (indexer *Indexer) loadState() (*IndexerState, error) {
-	buf, err := ioutil.ReadFile("./data/indexer_state.json")
+	buf, err := ioutil.ReadFile(indexer.storagePath + "/indexer_state.json")
 	if err != nil {
 		return nil, err
 	}
