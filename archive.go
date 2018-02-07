@@ -185,6 +185,10 @@ func (archiver *Archiver) archive() {
 								}
 								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
 								//level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+
+								archiver.currentLabelIndex = 0
+								archiver.currentNamespaceIndex = 0
+
 								wg.Done()
 							} else {
 								// archive next namespace
