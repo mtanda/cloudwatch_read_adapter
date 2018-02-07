@@ -131,6 +131,11 @@ func (archiver *Archiver) archive() {
 				break
 			}
 
+			if archiver.isArchived(endTime) {
+				level.Info(archiver.logger).Log("msg", "already archived")
+				break
+			}
+
 			if archiver.currentNamespaceIndex == 0 && archiver.currentLabelIndex == 0 {
 				for _, namespace := range archiver.namespace {
 					archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
