@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -106,6 +107,7 @@ func (archiver *Archiver) start() {
 func (archiver *Archiver) archive() {
 	timeMargin := 15 * time.Minute // wait until CloudWatch record metrics
 	//archiveTime := archiver.interval / 4
+	apiCallRate := 0.5
 
 	t := time.NewTimer(1 * time.Minute)
 	defer t.Stop()
@@ -131,7 +133,9 @@ func (archiver *Archiver) archive() {
 
 			wg := &sync.WaitGroup{}
 			app := archiver.db.Appender()
-			ft := time.NewTicker(1 * time.Minute) // TODO: time.Sleep(archiveTime / time.Duration(len(matchedLabelsList)))
+			//ft := time.NewTicker(1 * time.Minute) // TODO: time.Sleep(archiveTime / time.Duration(len(matchedLabelsList)))
+			cps := math.Floor(400 * apiCallRate) // support 400 transactions per second (TPS). https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_limits.html
+			ft := time.NewTicker(1 * time.Second / time.Duration(cps))
 			wt := time.NewTicker(1 * time.Minute)
 			wg.Add(1)
 			go func() {
