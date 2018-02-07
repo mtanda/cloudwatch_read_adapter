@@ -149,7 +149,10 @@ func (indexer *Indexer) index() {
 			}
 
 			indexer.indexedTimestampTo = now
-			indexer.saveState(indexer.indexedTimestampTo.Unix())
+			if err := indexer.saveState(indexer.indexedTimestampTo.Unix()); err != nil {
+				level.Error(indexer.logger).Log("err", err)
+				panic(err)
+			}
 			level.Info(indexer.logger).Log("msg", "indexing completed")
 		case <-indexer.ctx.Done():
 			level.Info(indexer.logger).Log("msg", "indexing stopped")

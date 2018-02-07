@@ -172,7 +172,10 @@ func (archiver *Archiver) archive() {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err) // TODO: fix
 								}
-								archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex)
+								if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
+									level.Error(archiver.logger).Log("err", err)
+									panic(err)
+								}
 								level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 								wg.Done()
 							}
@@ -183,7 +186,10 @@ func (archiver *Archiver) archive() {
 							panic(err) // TODO: fix
 						}
 						namespace := archiver.namespace[archiver.currentNamespaceIndex]
-						archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex)
+						if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
+							level.Error(archiver.logger).Log("err", err)
+							panic(err)
+						}
 						level.Info(archiver.logger).Log("namespace", *namespace, "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 					}
 				}
@@ -191,7 +197,10 @@ func (archiver *Archiver) archive() {
 
 			wg.Wait()
 			archiver.archivedTimestamp = endTime
-			archiver.saveState(archiver.archivedTimestamp.Unix(), 0, 0)
+			if err := archiver.saveState(archiver.archivedTimestamp.Unix(), 0, 0); err != nil {
+				level.Error(archiver.logger).Log("err", err)
+				panic(err)
+			}
 			level.Info(archiver.logger).Log("msg", "archiving completed")
 		case <-archiver.ctx.Done():
 			level.Info(archiver.logger).Log("msg", "archiving stopped")
