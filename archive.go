@@ -131,9 +131,11 @@ func (archiver *Archiver) archive() {
 				break
 			}
 
-			for _, namespace := range archiver.namespace {
-				archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
-				archiverTargetsTotal.WithLabelValues(*namespace).Set(float64(0))
+			if archiver.currentNamespaceIndex == 0 && archiver.currentLabelIndex == 0 {
+				for _, namespace := range archiver.namespace {
+					archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
+					archiverTargetsTotal.WithLabelValues(*namespace).Set(float64(0))
+				}
 			}
 
 			wg := &sync.WaitGroup{}
