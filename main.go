@@ -443,6 +443,7 @@ func main() {
 	}
 	archiver.start(eg)
 
+	srv := &http.Server{Addr: cfg.listenAddr}
 	http.Handle("/metrics", prometheus.Handler())
 	http.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
 		compressed, err := ioutil.ReadAll(r.Body)
@@ -500,14 +501,16 @@ func main() {
 			if err := eg.Wait(); err != nil {
 				level.Error(logger).Log("err", err)
 			}
-			os.Exit(0)
+
+			ctx, _ := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := srv.Shutdown(ctx); err != nil {
+				level.Error(logger).Log("err", err)
+			}
 		case <-ctx.Done():
 		}
 	}()
 
-	err = http.ListenAndServe(cfg.listenAddr, nil)
-	if err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		level.Error(logger).Log("err", err)
-		panic(err)
 	}
 }
