@@ -79,8 +79,8 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 		cloudwatch:            cloudwatch,
 		db:                    db,
 		namespace:             cfg.Namespace,
-		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}, // Sum, SampleCount, Maximum, Minimum, pNN.NN
-		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")},                                                  // TODO: add to config
+		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
+		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
 		interval:              time.Duration(24) * time.Hour,
 		indexer:               indexer,
 		archivedTimestamp:     time.Unix(0, 0),
@@ -144,7 +144,6 @@ func (archiver *Archiver) archive() {
 			}
 
 			wg := &sync.WaitGroup{}
-			//ft := time.NewTicker(1 * time.Minute) // TODO: time.Sleep(archiveTime / time.Duration(len(matchedLabelsList)))
 			cps := math.Floor(400 * apiCallRate) // support 400 transactions per second (TPS). https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_limits.html
 			ft := time.NewTimer(0)
 			wt := time.NewTimer(0)
