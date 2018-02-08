@@ -180,8 +180,12 @@ func (archiver *Archiver) archive() error {
 						if archiver.currentLabelIndex == len(matchedLabelsList) {
 							if archiver.currentNamespaceIndex == len(archiver.namespace)-1 {
 								// archive finished
-								ft.Stop()
-								wt.Stop()
+								if !ft.Stop() {
+									<-ft.C
+								}
+								if !wt.Stop() {
+									<-wt.C
+								}
 
 								if err := app.Commit(); err != nil {
 									level.Error(archiver.logger).Log("err", err)
