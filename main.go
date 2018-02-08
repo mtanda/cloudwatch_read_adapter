@@ -416,24 +416,6 @@ func main() {
 	eg := errgroup.Group{}
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
-	term := make(chan os.Signal, 1)
-	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
-	defer func() {
-		signal.Stop(term)
-		cancel()
-	}()
-	go func() {
-		select {
-		case <-term:
-			level.Warn(logger).Log("msg", "Received SIGTERM, exiting gracefully...")
-			cancel()
-			if err := eg.Wait(); err != nil {
-				level.Error(logger).Log("err", err)
-			}
-			os.Exit(0)
-		case <-ctx.Done():
-		}
-	}()
 
 	// set default region
 	region, err := GetDefaultRegion()
@@ -503,6 +485,25 @@ func main() {
 			return
 		}
 	})
+
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
+	defer func() {
+		signal.Stop(term)
+		cancel()
+	}()
+	go func() {
+		select {
+		case <-term:
+			level.Warn(logger).Log("msg", "Received SIGTERM, exiting gracefully...")
+			cancel()
+			if err := eg.Wait(); err != nil {
+				level.Error(logger).Log("err", err)
+			}
+			os.Exit(0)
+		case <-ctx.Done():
+		}
+	}()
 
 	err = http.ListenAndServe(cfg.listenAddr, nil)
 	if err != nil {
