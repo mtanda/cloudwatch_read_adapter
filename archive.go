@@ -92,6 +92,10 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 }
 
 func (archiver *Archiver) start() {
+	if len(archiver.namespace) == 0 {
+		return
+	}
+
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive region = %s", *archiver.region))
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive namespace = %+v", archiver.namespace))
 	state, err := archiver.loadState()
