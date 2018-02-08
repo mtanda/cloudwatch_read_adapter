@@ -79,8 +79,8 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 		cloudwatch:            cloudwatch,
 		db:                    db,
 		namespace:             cfg.Namespace,
-		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum")}, // Sum, SampleCount, Maximum, Minimum, pNN.NN
-		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")},                           // TODO: add to config
+		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}, // Sum, SampleCount, Maximum, Minimum, pNN.NN
+		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")},                                                  // TODO: add to config
 		interval:              time.Duration(24) * time.Hour,
 		indexer:               indexer,
 		archivedTimestamp:     time.Unix(0, 0),
@@ -301,7 +301,7 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 	})
 
 	paramStatistics := append(params.Statistics, params.ExtendedStatistics...)
-	var ref uint64
+	refs := make(map[string]uint64)
 	for _, dp := range resp.Datapoints {
 		for _, s := range paramStatistics {
 			// TODO: drop Average/Maximum/Minium in certain condition
@@ -341,10 +341,10 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 				l = append(l, labels.Label{Name: "ExtendedStatistic", Value: *s})
 			}
 			var errAdd error
-			if ref != 0 {
-				errAdd = app.AddFast(ref, dp.Timestamp.Unix()*1000, value)
+			if _, ok := refs[*s]; ok {
+				errAdd = app.AddFast(refs[*s], dp.Timestamp.Unix()*1000, value)
 			} else {
-				ref, errAdd = app.Add(l, dp.Timestamp.Unix()*1000, value)
+				refs[*s], errAdd = app.Add(l, dp.Timestamp.Unix()*1000, value)
 			}
 			if errAdd != nil {
 				level.Error(archiver.logger).Log("err", errAdd)
