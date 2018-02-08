@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/tsdb"
 	"github.com/prometheus/tsdb/labels"
+	"golang.org/x/sync/errgroup"
 )
 
 type Indexer struct {
@@ -82,7 +83,7 @@ func NewIndexer(ctx context.Context, cfg IndexConfig, storagePath string, logger
 	}, nil
 }
 
-func (indexer *Indexer) start() {
+func (indexer *Indexer) start(eg errgroup.Group) {
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index region = %s", *indexer.region))
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index namespace = %+v", indexer.namespace))
 	indexer.indexedTimestampFrom = time.Now().UTC()
@@ -90,10 +91,13 @@ func (indexer *Indexer) start() {
 	if err == nil {
 		indexer.indexedTimestampTo = time.Unix(state.Timestamp, 0)
 	}
-	go indexer.index()
+
+	eg.Go(func() error {
+		return indexer.index()
+	})
 }
 
-func (indexer *Indexer) index() {
+func (indexer *Indexer) index() error {
 	t := time.NewTimer(1 * time.Minute)
 	defer t.Stop()
 	for {
@@ -163,7 +167,7 @@ func (indexer *Indexer) index() {
 		case <-indexer.ctx.Done():
 			level.Info(indexer.logger).Log("msg", "indexing stopped")
 			indexer.db.Close()
-			return
+			return nil
 		}
 	}
 }

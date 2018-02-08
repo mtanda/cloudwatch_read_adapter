@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/tsdb"
 	"github.com/prometheus/tsdb/labels"
+	"golang.org/x/sync/errgroup"
 )
 
 type Archiver struct {
@@ -91,7 +92,7 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 	}, nil
 }
 
-func (archiver *Archiver) start() {
+func (archiver *Archiver) start(eg errgroup.Group) {
 	if len(archiver.namespace) == 0 {
 		return
 	}
@@ -105,10 +106,12 @@ func (archiver *Archiver) start() {
 		archiver.currentLabelIndex = state.Index
 	}
 
-	go archiver.archive()
+	eg.Go(func() error {
+		return archiver.archive()
+	})
 }
 
-func (archiver *Archiver) archive() {
+func (archiver *Archiver) archive() error {
 	timeMargin := 15 * time.Minute // wait until CloudWatch record metrics
 	//archiveTime := archiver.interval / 4
 	apiCallRate := 0.5
@@ -240,7 +243,7 @@ func (archiver *Archiver) archive() {
 		case <-archiver.ctx.Done():
 			level.Info(archiver.logger).Log("msg", "archiving stopped")
 			archiver.db.Close()
-			return
+			return nil
 		}
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/prometheus/prompb"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -412,6 +413,7 @@ func main() {
 	}
 
 	// graceful shutdown
+	eg := errgroup.Group{}
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	term := make(chan os.Signal, 1)
@@ -425,6 +427,9 @@ func main() {
 		case <-term:
 			level.Warn(logger).Log("msg", "Received SIGTERM, exiting gracefully...")
 			cancel()
+			if err := eg.Wait(); err != nil {
+				level.Error(logger).Log("err", err)
+			}
 			os.Exit(0)
 		case <-ctx.Done():
 		}
@@ -448,13 +453,13 @@ func main() {
 		level.Error(logger).Log("err", err)
 		panic(err)
 	}
-	indexer.start()
+	indexer.start(eg)
 	archiver, err := NewArchiver(ctx, readCfg.Targets[0].Archive, cfg.storagePath, indexer, log.With(logger, "component", "archiver"))
 	if err != nil {
 		level.Error(logger).Log("err", err)
 		panic(err)
 	}
-	archiver.start()
+	archiver.start(eg)
 
 	http.Handle("/metrics", prometheus.Handler())
 	http.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
