@@ -144,11 +144,10 @@ func (archiver *Archiver) archive() {
 			}
 
 			wg := &sync.WaitGroup{}
-			app := archiver.db.Appender()
 			//ft := time.NewTicker(1 * time.Minute) // TODO: time.Sleep(archiveTime / time.Duration(len(matchedLabelsList)))
 			cps := math.Floor(400 * apiCallRate) // support 400 transactions per second (TPS). https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_limits.html
-			ft := time.NewTicker(1 * time.Second / time.Duration(cps))
-			wt := time.NewTicker(1 * time.Minute)
+			ft := time.NewTimer(0)
+			wt := time.NewTimer(0)
 			wg.Add(1)
 			go func() {
 				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", *archiver.namespace[archiver.currentNamespaceIndex]))
@@ -159,9 +158,12 @@ func (archiver *Archiver) archive() {
 				}
 				archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 
+				app := archiver.db.Appender()
 				for {
 					select {
 					case <-ft.C:
+						ft.Reset(1 * time.Second / time.Duration(cps))
+
 						matchedLabels := matchedLabelsList[archiver.currentLabelIndex]
 						err = archiver.process(app, matchedLabels, startTime, endTime)
 						if err != nil {
@@ -179,6 +181,7 @@ func (archiver *Archiver) archive() {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err) // TODO: fix
 								}
+
 								if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err)
@@ -207,6 +210,8 @@ func (archiver *Archiver) archive() {
 							}
 						}
 					case <-wt.C:
+						wt.Reset(1 * time.Minute)
+
 						if err := app.Commit(); err != nil {
 							level.Error(archiver.logger).Log("err", err)
 							panic(err) // TODO: fix
