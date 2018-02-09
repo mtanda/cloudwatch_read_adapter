@@ -43,7 +43,6 @@ func init() {
 }
 
 type Indexer struct {
-	ctx                  context.Context
 	region               *string
 	cloudwatch           *cloudwatch.CloudWatch
 	db                   *tsdb.DB
@@ -55,7 +54,7 @@ type Indexer struct {
 	logger               log.Logger
 }
 
-func NewIndexer(ctx context.Context, cfg IndexConfig, storagePath string, logger log.Logger) (*Indexer, error) {
+func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexer, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -92,7 +91,6 @@ func NewIndexer(ctx context.Context, cfg IndexConfig, storagePath string, logger
 	}
 
 	return &Indexer{
-		ctx:                  ctx,
 		region:               cfg.Region[0],
 		cloudwatch:           cloudwatch,
 		db:                   db,
@@ -105,7 +103,7 @@ func NewIndexer(ctx context.Context, cfg IndexConfig, storagePath string, logger
 	}, nil
 }
 
-func (indexer *Indexer) start(eg errgroup.Group) {
+func (indexer *Indexer) start(eg *errgroup.Group, ctx context.Context) {
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index region = %s", *indexer.region))
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index namespace = %+v", indexer.namespace))
 	indexer.indexedTimestampFrom = time.Now().UTC()
@@ -114,12 +112,12 @@ func (indexer *Indexer) start(eg errgroup.Group) {
 		indexer.indexedTimestampTo = time.Unix(state.Timestamp, 0)
 	}
 
-	eg.Go(func() error {
-		return indexer.index()
+	(*eg).Go(func() error {
+		return indexer.index(ctx)
 	})
 }
 
-func (indexer *Indexer) index() error {
+func (indexer *Indexer) index(ctx context.Context) error {
 	t := time.NewTimer(1 * time.Minute)
 	defer t.Stop()
 	for {
@@ -186,7 +184,7 @@ func (indexer *Indexer) index() error {
 				panic(err)
 			}
 			level.Info(indexer.logger).Log("msg", "indexing completed")
-		case <-indexer.ctx.Done():
+		case <-ctx.Done():
 			level.Info(indexer.logger).Log("msg", "indexing stopped")
 			indexer.db.Close()
 			return nil

@@ -46,7 +46,6 @@ func init() {
 }
 
 type Archiver struct {
-	ctx                   context.Context
 	region                *string
 	cloudwatch            *cloudwatch.CloudWatch
 	db                    *tsdb.DB
@@ -62,7 +61,7 @@ type Archiver struct {
 	logger                log.Logger
 }
 
-func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, indexer *Indexer, logger log.Logger) (*Archiver, error) {
+func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger log.Logger) (*Archiver, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -97,7 +96,6 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 	}
 
 	return &Archiver{
-		ctx:                   ctx,
 		region:                cfg.Region[0],
 		cloudwatch:            cloudwatch,
 		db:                    db,
@@ -114,7 +112,7 @@ func NewArchiver(ctx context.Context, cfg ArchiveConfig, storagePath string, ind
 	}, nil
 }
 
-func (archiver *Archiver) start(eg errgroup.Group) {
+func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 	if len(archiver.namespace) == 0 {
 		return
 	}
@@ -128,12 +126,12 @@ func (archiver *Archiver) start(eg errgroup.Group) {
 		archiver.currentLabelIndex = state.Index
 	}
 
-	eg.Go(func() error {
-		return archiver.archive()
+	(*eg).Go(func() error {
+		return archiver.archive(ctx)
 	})
 }
 
-func (archiver *Archiver) archive() error {
+func (archiver *Archiver) archive(ctx context.Context) error {
 	timeMargin := 15 * time.Minute // wait until CloudWatch record metrics
 	//archiveTime := archiver.interval / 4
 	apiCallRate := 0.5
@@ -266,7 +264,7 @@ func (archiver *Archiver) archive() error {
 				panic(err)
 			}
 			level.Info(archiver.logger).Log("msg", "archiving completed")
-		case <-archiver.ctx.Done():
+		case <-ctx.Done():
 			level.Info(archiver.logger).Log("msg", "archiving stopped")
 			archiver.db.Close()
 			return nil

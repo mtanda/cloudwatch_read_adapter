@@ -381,9 +381,8 @@ func main() {
 	}
 
 	// graceful shutdown
-	eg := errgroup.Group{}
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
+	pctx, cancel := context.WithCancel(context.Background())
+	eg, ctx := errgroup.WithContext(pctx)
 
 	// set default region
 	region, err := GetDefaultRegion()
@@ -398,18 +397,18 @@ func main() {
 		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, &region)
 	}
 
-	indexer, err := NewIndexer(ctx, readCfg.Targets[0].Index, cfg.storagePath, log.With(logger, "component", "indexer"))
+	indexer, err := NewIndexer(readCfg.Targets[0].Index, cfg.storagePath, log.With(logger, "component", "indexer"))
 	if err != nil {
 		level.Error(logger).Log("err", err)
 		panic(err)
 	}
-	indexer.start(eg)
-	archiver, err := NewArchiver(ctx, readCfg.Targets[0].Archive, cfg.storagePath, indexer, log.With(logger, "component", "archiver"))
+	indexer.start(eg, ctx)
+	archiver, err := NewArchiver(readCfg.Targets[0].Archive, cfg.storagePath, indexer, log.With(logger, "component", "archiver"))
 	if err != nil {
 		level.Error(logger).Log("err", err)
 		panic(err)
 	}
-	archiver.start(eg)
+	archiver.start(eg, ctx)
 
 	srv := &http.Server{Addr: cfg.listenAddr}
 	http.Handle("/metrics", prometheus.Handler())
@@ -470,8 +469,8 @@ func main() {
 				level.Error(logger).Log("err", err)
 			}
 
-			ctx, _ := context.WithTimeout(context.Background(), 60*time.Second)
-			if err := srv.Shutdown(ctx); err != nil {
+			ctxHttp, _ := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := srv.Shutdown(ctxHttp); err != nil {
 				level.Error(logger).Log("err", err)
 			}
 		case <-ctx.Done():
