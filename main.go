@@ -222,7 +222,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 				query.ExtendedStatistics = statistics
 			}
 		}
-		if len(query.Statistics) == 0 {
+		if len(query.Statistics) == 0 && len(query.ExtendedStatistics) == 0 {
 			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum")}
 			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}
 		}
