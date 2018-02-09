@@ -23,6 +23,28 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+var (
+	archiverTargetsProgress = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "cloudwatch_read_adapter_archiver_targets_progress",
+			Help: "The progress of archiver",
+		},
+		[]string{"namespace"},
+	)
+	archiverTargetsTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "cloudwatch_read_adapter_archiver_targets_total",
+			Help: "The total number of archive target",
+		},
+		[]string{"namespace"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(archiverTargetsProgress)
+	prometheus.MustRegister(archiverTargetsTotal)
+}
+
 type Archiver struct {
 	ctx                   context.Context
 	region                *string

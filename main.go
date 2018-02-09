@@ -38,42 +38,10 @@ var (
 		},
 		[]string{"api", "status"},
 	)
-	indexerTargetsProgress = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cloudwatch_read_adapter_indexer_targets_progress",
-			Help: "The progress of indexer",
-		},
-		[]string{"namespace"},
-	)
-	indexerTargetsTotal = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cloudwatch_read_adapter_indexer_targets_total",
-			Help: "The total number of index target",
-		},
-		[]string{"namespace"},
-	)
-	archiverTargetsProgress = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cloudwatch_read_adapter_archiver_targets_progress",
-			Help: "The progress of archiver",
-		},
-		[]string{"namespace"},
-	)
-	archiverTargetsTotal = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "cloudwatch_read_adapter_archiver_targets_total",
-			Help: "The total number of archive target",
-		},
-		[]string{"namespace"},
-	)
 )
 
 func init() {
 	prometheus.MustRegister(cloudwatchApiCalls)
-	prometheus.MustRegister(indexerTargetsProgress)
-	prometheus.MustRegister(indexerTargetsTotal)
-	prometheus.MustRegister(archiverTargetsProgress)
-	prometheus.MustRegister(archiverTargetsTotal)
 }
 
 type config struct {
