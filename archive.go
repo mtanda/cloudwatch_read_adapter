@@ -124,6 +124,7 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 		archiver.archivedTimestamp = time.Unix(state.Timestamp, 0)
 		archiver.currentNamespaceIndex = state.Namespace
 		archiver.currentLabelIndex = state.Index
+		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", archiver.archivedTimestamp, "namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex)
 	}
 
 	(*eg).Go(func() error {
@@ -158,7 +159,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				break
 			}
 
-			if archiver.isArchived(endTime) {
+			if archiver.isArchived(endTime.Add(-1 * time.Second)) {
 				level.Info(archiver.logger).Log("msg", "already archived")
 				break
 			}
@@ -258,7 +259,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			}()
 
 			wg.Wait()
-			archiver.archivedTimestamp = endTime
+			archiver.archivedTimestamp = endTime.Add(-1 * time.Second)
 			if err := archiver.saveState(archiver.archivedTimestamp.Unix(), 0, 0); err != nil {
 				level.Error(archiver.logger).Log("err", err)
 				panic(err)
@@ -475,5 +476,5 @@ func (archiver *Archiver) canArchive(endTime time.Time, now time.Time) bool {
 }
 
 func (archiver *Archiver) isArchived(t time.Time) bool {
-	return t.Before(archiver.archivedTimestamp)
+	return t.Before(archiver.archivedTimestamp) || t.Equal(archiver.archivedTimestamp)
 }

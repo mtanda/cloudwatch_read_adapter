@@ -110,6 +110,7 @@ func (indexer *Indexer) start(eg *errgroup.Group, ctx context.Context) {
 	state, err := indexer.loadState()
 	if err == nil {
 		indexer.indexedTimestampTo = time.Unix(state.Timestamp, 0)
+		level.Info(indexer.logger).Log("msg", "state loaded", "timestamp", indexer.indexedTimestampTo)
 	}
 
 	(*eg).Go(func() error {
