@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,12 +33,6 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 			query.Statistics = []*string{aws.String(m.Value)}
 		case "ExtendedStatistic":
 			query.ExtendedStatistics = []*string{aws.String(m.Value)}
-		case "Period":
-			period, err := strconv.Atoi(m.Value)
-			if err != nil {
-				return region, queries, err
-			}
-			query.Period = aws.Int64(int64(period))
 		default:
 			query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
 				Name:  aws.String(m.Name),
@@ -137,14 +130,12 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000, 0).Truncate(time.Duration(periodUnit)))
 
 	// auto calibrate period
-	if query.Period == nil {
-		period := calibratePeriod(*query.StartTime)
-		queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
-		if queryTimeRange/float64(period) >= 1440 {
-			period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
-		}
-		query.Period = aws.Int64(int64(period))
+	period := calibratePeriod(*query.StartTime)
+	queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
+	if queryTimeRange/float64(period) >= 1440 {
+		period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
 	}
+	query.Period = aws.Int64(int64(period))
 
 	resp, err := svc.GetMetricStatistics(query)
 	if err != nil {
