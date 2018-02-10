@@ -9,8 +9,23 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/prometheus/prompb"
 )
+
+var (
+	cloudwatchApiCalls = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cloudwatch_read_adapter_cloudwatch_api_calls_total",
+			Help: "The total number of CloudWatch API calls",
+		},
+		[]string{"api", "status"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(cloudwatchApiCalls)
+}
 
 func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
 	region := ""

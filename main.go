@@ -26,20 +26,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var (
-	cloudwatchApiCalls = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "cloudwatch_read_adapter_cloudwatch_api_calls_total",
-			Help: "The total number of CloudWatch API calls",
-		},
-		[]string{"api", "status"},
-	)
-)
-
-func init() {
-	prometheus.MustRegister(cloudwatchApiCalls)
-}
-
 type config struct {
 	listenAddr  string
 	configFile  string
