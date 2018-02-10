@@ -244,7 +244,7 @@ func main() {
 			if err := srv.Shutdown(ctxHttp); err != nil {
 				level.Error(logger).Log("err", err)
 			}
-		case <-ctx.Done():
+		case <-pctx.Done():
 		}
 	}()
 
