@@ -48,6 +48,7 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 			})
 		}
 	}
+	queries = append(queries, query)
 
 	return region, queries, nil
 }
@@ -56,7 +57,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 	region := ""
 	queries := make([]*cloudwatch.GetMetricStatisticsInput, 0)
 
-	// TODO: improve this
+	// index doesn't have statistics label, get label matchers without statistics
 	mm := make([]*prompb.LabelMatcher, 0)
 	for _, m := range q.Matchers {
 		if m.Name == "Statistic" || m.Name == "ExtendedStatistic" {
@@ -95,10 +96,9 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 				})
 			}
 		}
-		// TODO: test this
 		for _, m := range q.Matchers {
 			if !(m.Type == prompb.LabelMatcher_EQ || m.Type == prompb.LabelMatcher_RE) {
-				continue
+				continue // only support equal matcher or regex matcher with alternation
 			}
 			statistics := make([]*string, 0)
 			for _, s := range strings.Split(m.Value, "|") {
@@ -112,7 +112,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 			}
 		}
 		if len(query.Statistics) == 0 && len(query.ExtendedStatistics) == 0 {
-			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum")}
+			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}
 			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}
 		}
 		queries = append(queries, query)
