@@ -111,6 +111,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 
 func GetDefaultRegion() (string, error) {
 	var region string
+
 	metadata := ec2metadata.New(session.New(), &aws.Config{
 		MaxRetries: aws.Int(0),
 	})
@@ -132,10 +133,10 @@ func GetDefaultRegion() (string, error) {
 
 func main() {
 	var cfg config
+
 	flag.StringVar(&cfg.listenAddr, "web.listen-address", ":9201", "Address to listen on for web endpoints.")
 	flag.StringVar(&cfg.configFile, "config.file", "./cloudwatch_read_adapter.yml", "Configuration file path.")
 	flag.StringVar(&cfg.storagePath, "storage.tsdb.path", "./data", "Base path for metrics storage.")
-
 	flag.Parse()
 
 	logLevel := promlog.AllowedLevel{}
@@ -152,10 +153,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// graceful shutdown
-	pctx, cancel := context.WithCancel(context.Background())
-	eg, ctx := errgroup.WithContext(pctx)
-
 	// set default region
 	region, err := GetDefaultRegion()
 	if err != nil {
@@ -169,6 +166,8 @@ func main() {
 		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, &region)
 	}
 
+	pctx, cancel := context.WithCancel(context.Background())
+	eg, ctx := errgroup.WithContext(pctx)
 	indexer, err := NewIndexer(readCfg.Targets[0].Index, cfg.storagePath, log.With(logger, "component", "indexer"))
 	if err != nil {
 		level.Error(logger).Log("err", err)
