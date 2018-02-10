@@ -137,21 +137,7 @@ func queryCloudWatch(region string, query *cloudwatch.GetMetricStatisticsInput, 
 	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
 
 	// auto calibrate period
-	period := 60
-	timeDay := 24 * time.Hour
-	if query.Period == nil {
-		now := time.Now().UTC()
-		timeRangeToNow := now.Sub(*query.StartTime)
-		if timeRangeToNow < timeDay*15 { // until 15 days ago
-			period = 60
-		} else if timeRangeToNow <= (timeDay * 63) { // until 63 days ago
-			period = 60 * 5
-		} else if timeRangeToNow <= (timeDay * 455) { // until 455 days ago
-			period = 60 * 60
-		} else { // over 455 days, should return error, but try to long period
-			period = 60 * 60
-		}
-	}
+	period := calibratePeriod(*query.StartTime)
 	queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
 	if queryTimeRange/float64(period) >= 1440 {
 		period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
@@ -224,4 +210,23 @@ func queryCloudWatch(region string, query *cloudwatch.GetMetricStatisticsInput, 
 	}
 
 	return result, nil
+}
+
+func calibratePeriod(startTime time.Time) int {
+	var period int
+
+	timeDay := 24 * time.Hour
+	now := time.Now().UTC()
+	timeRangeToNow := now.Sub(startTime)
+	if timeRangeToNow < timeDay*15 { // until 15 days ago
+		period = 60
+	} else if timeRangeToNow <= (timeDay * 63) { // until 63 days ago
+		period = 60 * 5
+	} else if timeRangeToNow <= (timeDay * 455) { // until 455 days ago
+		period = 60 * 60
+	} else { // over 455 days, should return error, but try to long period
+		period = 60 * 60
+	}
+
+	return period
 }
