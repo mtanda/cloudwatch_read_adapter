@@ -128,13 +128,14 @@ func queryCloudWatch(region string, query *cloudwatch.GetMetricStatisticsInput, 
 		return result, fmt.Errorf("missing parameter")
 	}
 
+	// align time range
 	periodUnit := 60
-	rangeAdjust := int64(0)
+	rangeAdjust := 0 * time.Second
 	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
-		rangeAdjust = int64(1)
+		rangeAdjust = time.Duration(periodUnit) * time.Second
 	}
-	query.StartTime = aws.Time(time.Unix((q.StartTimestampMs/1000/int64(periodUnit)+rangeAdjust)*int64(periodUnit), 0))
-	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
+	query.StartTime = aws.Time(time.Unix(q.StartTimestampMs/1000, 0).Truncate(time.Duration(periodUnit)).Add(rangeAdjust))
+	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000, 0).Truncate(time.Duration(periodUnit)))
 
 	// auto calibrate period
 	if query.Period == nil {
