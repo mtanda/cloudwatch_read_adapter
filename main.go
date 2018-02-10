@@ -107,8 +107,16 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		return result
 	}
 
+	cfg := &aws.Config{Region: aws.String(region)}
+	sess, err := session.NewSession(cfg)
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		return result
+	}
+	svc := cloudwatch.New(sess, cfg)
+
 	for _, query := range queries {
-		cwResult, err := queryCloudWatch(region, query, q)
+		cwResult, err := queryCloudWatch(svc, region, query, q)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return result

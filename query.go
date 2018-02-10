@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	"github.com/prometheus/prometheus/prompb"
 )
@@ -121,7 +120,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 	return region, queries, nil
 }
 
-func queryCloudWatch(region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query) ([]*prompb.TimeSeries, error) {
+func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query) ([]*prompb.TimeSeries, error) {
 	result := []*prompb.TimeSeries{}
 
 	if query.Namespace == nil || query.MetricName == nil {
@@ -147,13 +146,6 @@ func queryCloudWatch(region string, query *cloudwatch.GetMetricStatisticsInput, 
 		query.Period = aws.Int64(int64(period))
 	}
 
-	cfg := &aws.Config{Region: aws.String(region)}
-	sess, err := session.NewSession(cfg)
-	if err != nil {
-		return result, err
-	}
-
-	svc := cloudwatch.New(sess, cfg)
 	resp, err := svc.GetMetricStatistics(query)
 	if err != nil {
 		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
