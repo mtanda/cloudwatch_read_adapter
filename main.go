@@ -35,14 +35,9 @@ type config struct {
 func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.Logger) []*prompb.TimeSeries {
 	result := []*prompb.TimeSeries{}
 
-	// TODO: improve this
 	namespace := ""
 	for _, m := range q.Matchers {
-		if m.Type != prompb.LabelMatcher_EQ {
-			continue
-		}
-		switch m.Name {
-		case "Namespace":
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Namespace" {
 			namespace = m.Value
 		}
 	}
