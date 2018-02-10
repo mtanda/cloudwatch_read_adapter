@@ -137,12 +137,14 @@ func queryCloudWatch(region string, query *cloudwatch.GetMetricStatisticsInput, 
 	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
 
 	// auto calibrate period
-	period := calibratePeriod(*query.StartTime)
-	queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
-	if queryTimeRange/float64(period) >= 1440 {
-		period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
+	if query.Period == nil {
+		period := calibratePeriod(*query.StartTime)
+		queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
+		if queryTimeRange/float64(period) >= 1440 {
+			period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
+		}
+		query.Period = aws.Int64(int64(period))
 	}
-	query.Period = aws.Int64(int64(period))
 
 	cfg := &aws.Config{Region: aws.String(region)}
 	sess, err := session.NewSession(cfg)
