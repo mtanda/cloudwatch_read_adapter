@@ -46,10 +46,8 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		return result
 	}
 
-	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
-	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
-
 	// get archived result
+	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
 	if archiver.isArchived(startTime) {
 		level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
 		aq := *q
@@ -67,6 +65,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 	var region string
 	var queries []*cloudwatch.GetMetricStatisticsInput
 	var err error
+	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	if indexer.isExpired(endTime, []*string{&namespace}) {
 		level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
 		region, queries, err = getQueryWithoutIndex(q, indexer)
