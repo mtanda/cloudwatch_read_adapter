@@ -188,13 +188,15 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 					case <-ft.C:
 						ft.Reset(1 * time.Second / time.Duration(cps))
 
-						matchedLabels := matchedLabelsList[archiver.s.Index]
-						err = archiver.process(app, matchedLabels, startTime, endTime)
-						if err != nil {
-							return err
+						if len(matchedLabelsList) > 0 {
+							matchedLabels := matchedLabelsList[archiver.s.Index]
+							err = archiver.process(app, matchedLabels, startTime, endTime)
+							if err != nil {
+								return err
+							}
+							archiver.s.Index++
 						}
 
-						archiver.s.Index++
 						if archiver.s.Index == len(matchedLabelsList) {
 							level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 							archiver.s.Namespace++
