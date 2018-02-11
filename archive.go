@@ -195,7 +195,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						err = archiver.process(app, matchedLabels, startTime, endTime)
 						if err != nil {
 							level.Error(archiver.logger).Log("err", err)
-							panic(err)
+							panic(err) // TODO: more safer stop
 						}
 
 						archiver.currentLabelIndex++
