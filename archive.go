@@ -247,13 +247,12 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 							level.Error(archiver.logger).Log("err", err)
 							panic(err) // TODO: fix
 						}
-						namespace := archiver.namespace[archiver.currentNamespaceIndex]
 						if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
 							level.Error(archiver.logger).Log("err", err)
 							panic(err)
 						}
-						archiverTargetsProgress.WithLabelValues(namespace).Set(float64(archiver.currentLabelIndex))
-						level.Info(archiver.logger).Log("namespace", namespace, "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
+						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 					}
 				}
 			}()
