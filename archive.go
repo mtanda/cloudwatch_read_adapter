@@ -375,7 +375,7 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 			}
 			if errAdd != nil {
 				level.Error(archiver.logger).Log("err", errAdd)
-				continue
+				return err
 			}
 		}
 	}
