@@ -49,7 +49,7 @@ type Indexer struct {
 	namespace            []string
 	interval             time.Duration
 	indexedTimestampFrom time.Time
-	indexedTimestampTo   time.Time
+	s                    *IndexerState
 	storagePath          string
 	logger               log.Logger
 }
@@ -90,6 +90,10 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		return nil, err
 	}
 
+	s := &IndexerState{
+		TimestampTo: 0,
+	}
+
 	return &Indexer{
 		cloudwatch:           cloudwatch,
 		db:                   db,
@@ -97,7 +101,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		namespace:            cfg.Namespace,
 		interval:             time.Duration(10) * time.Minute,
 		indexedTimestampFrom: time.Unix(0, 0),
-		indexedTimestampTo:   time.Unix(0, 0),
+		s:                    s,
 		storagePath:          storagePath,
 		logger:               logger,
 	}, nil
@@ -109,8 +113,8 @@ func (indexer *Indexer) start(eg *errgroup.Group, ctx context.Context) {
 	indexer.indexedTimestampFrom = time.Now().UTC()
 	state, err := indexer.loadState()
 	if err == nil {
-		indexer.indexedTimestampTo = time.Unix(state.Timestamp, 0)
-		level.Info(indexer.logger).Log("msg", "state loaded", "timestamp", indexer.indexedTimestampTo)
+		indexer.s = state
+		level.Info(indexer.logger).Log("msg", "state loaded", "timestamp", indexer.s.TimestampTo)
 	}
 
 	(*eg).Go(func() error {
@@ -179,8 +183,8 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
 			}
 
-			indexer.indexedTimestampTo = now
-			if err := indexer.saveState(indexer.indexedTimestampTo.Unix()); err != nil {
+			indexer.s.TimestampTo = now.Unix()
+			if err := indexer.saveState(); err != nil {
 				level.Error(indexer.logger).Log("err", err)
 				return err
 			}
@@ -212,14 +216,11 @@ func (indexer *Indexer) getMatchedLables(matchers []labels.Matcher, start int64,
 }
 
 type IndexerState struct {
-	Timestamp int64 `json:"timestamp"`
+	TimestampTo int64 `json:"timestamp"`
 }
 
-func (indexer *Indexer) saveState(timestamp int64) error {
-	state := IndexerState{
-		Timestamp: timestamp,
-	}
-	buf, err := json.Marshal(state)
+func (indexer *Indexer) saveState() error {
+	buf, err := json.Marshal(indexer.s)
 	if err != nil {
 		return err
 	}
@@ -247,11 +248,11 @@ func (indexer *Indexer) loadState() (*IndexerState, error) {
 }
 
 func (indexer *Indexer) canIndex(t time.Time) bool {
-	return indexer.indexedTimestampTo.Before(t) || indexer.indexedTimestampFrom.Before(t)
+	return time.Unix(indexer.s.TimestampTo, 0).Before(t) || indexer.indexedTimestampFrom.Before(t)
 }
 
 func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
-	if t.After(indexer.indexedTimestampTo) || (indexer.indexedTimestampTo.After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
+	if t.After(time.Unix(indexer.s.TimestampTo, 0)) || (time.Unix(indexer.s.TimestampTo, 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
 		return false
 	}
 	indexed := false
@@ -269,7 +270,7 @@ func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
 
 func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
 	t = t.Add(-indexer.interval)
-	if indexer.indexedTimestampTo.After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom) {
+	if time.Unix(indexer.s.TimestampTo, 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom) {
 		t = indexer.indexedTimestampFrom
 	}
 	return !indexer.isIndexed(t, namespace)

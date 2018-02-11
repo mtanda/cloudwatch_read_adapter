@@ -45,19 +45,17 @@ func init() {
 }
 
 type Archiver struct {
-	cloudwatch            *cloudwatch.CloudWatch
-	db                    *tsdb.DB
-	indexer               *Indexer
-	region                string
-	namespace             []string
-	statistics            []*string
-	extendedStatistics    []*string
-	interval              time.Duration
-	archivedTimestamp     time.Time
-	currentNamespaceIndex int
-	currentLabelIndex     int
-	storagePath           string
-	logger                log.Logger
+	cloudwatch         *cloudwatch.CloudWatch
+	db                 *tsdb.DB
+	indexer            *Indexer
+	region             string
+	namespace          []string
+	statistics         []*string
+	extendedStatistics []*string
+	interval           time.Duration
+	s                  *ArchiverState
+	storagePath        string
+	logger             log.Logger
 }
 
 func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger log.Logger) (*Archiver, error) {
@@ -94,20 +92,24 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		return nil, err
 	}
 
+	s := &ArchiverState{
+		Timestamp: make(map[string]int64),
+		Namespace: 0,
+		Index:     0,
+	}
+
 	return &Archiver{
-		cloudwatch:            cloudwatch,
-		db:                    db,
-		indexer:               indexer,
-		region:                cfg.Region[0],
-		namespace:             cfg.Namespace,
-		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
-		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
-		interval:              time.Duration(24) * time.Hour,
-		archivedTimestamp:     time.Unix(0, 0),
-		currentNamespaceIndex: 0,
-		currentLabelIndex:     0,
-		storagePath:           storagePath,
-		logger:                logger,
+		cloudwatch:         cloudwatch,
+		db:                 db,
+		indexer:            indexer,
+		region:             cfg.Region[0],
+		namespace:          cfg.Namespace,
+		statistics:         []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
+		extendedStatistics: []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
+		interval:           time.Duration(24) * time.Hour,
+		s:                  s,
+		storagePath:        storagePath,
+		logger:             logger,
 	}, nil
 }
 
@@ -120,10 +122,8 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive namespace = %+v", archiver.namespace))
 	state, err := archiver.loadState()
 	if err == nil {
-		archiver.archivedTimestamp = time.Unix(state.Timestamp, 0)
-		archiver.currentNamespaceIndex = state.Namespace
-		archiver.currentLabelIndex = state.Index
-		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", archiver.archivedTimestamp, "namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex)
+		archiver.s = state
+		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", fmt.Sprintf("%+v", archiver.s.Timestamp), "namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index)
 	}
 
 	(*eg).Go(func() error {
@@ -163,7 +163,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				break
 			}
 
-			if archiver.currentNamespaceIndex == 0 && archiver.currentLabelIndex == 0 {
+			if archiver.s.Namespace == 0 && archiver.s.Index == 0 {
 				for _, namespace := range archiver.namespace {
 					archiverTargetsProgress.WithLabelValues(namespace).Set(float64(0))
 					archiverTargetsTotal.WithLabelValues(namespace).Set(float64(0))
@@ -175,12 +175,12 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			wt := time.NewTimer(0)
 			eg, actx := errgroup.WithContext(ctx)
 			(*eg).Go(func() error {
-				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
-				matchedLabelsList, err := archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
+				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.s.Namespace]))
+				matchedLabelsList, err := archiver.getMatchedLabelsList(archiver.namespace[archiver.s.Namespace], startTime, endTime)
 				if err != nil {
 					return err
 				}
-				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
+				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(len(matchedLabelsList)))
 
 				app := archiver.db.Appender()
 				for {
@@ -188,17 +188,17 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 					case <-ft.C:
 						ft.Reset(1 * time.Second / time.Duration(cps))
 
-						matchedLabels := matchedLabelsList[archiver.currentLabelIndex]
+						matchedLabels := matchedLabelsList[archiver.s.Index]
 						err = archiver.process(app, matchedLabels, startTime, endTime)
 						if err != nil {
 							return err
 						}
 
-						archiver.currentLabelIndex++
-						if archiver.currentLabelIndex == len(matchedLabelsList) {
-							level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
-							archiver.currentNamespaceIndex++
-							if archiver.currentNamespaceIndex == len(archiver.namespace) {
+						archiver.s.Index++
+						if archiver.s.Index == len(matchedLabelsList) {
+							level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
+							archiver.s.Namespace++
+							if archiver.s.Namespace == len(archiver.namespace) {
 								// archive finished
 								if !ft.Stop() {
 									<-ft.C
@@ -210,31 +210,42 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := app.Commit(); err != nil {
 									return err
 								}
+								archiver.s.Timestamp[archiver.namespace[archiver.s.Namespace-1]] = endTime.Add(-1 * time.Second).Unix()
 
-								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex-1], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
-								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
+								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace-1], "index", archiver.s.Index, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.s.Namespace-1]).Set(float64(archiver.s.Index))
 
 								// reset index for next archiving cycle
-								archiver.currentLabelIndex = 0
-								archiver.currentNamespaceIndex = 0
+								archiver.s.Index = 0
+								archiver.s.Namespace = 0
 
-								archiver.archivedTimestamp = endTime.Add(-1 * time.Second)
-								if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
+								if err := archiver.saveState(); err != nil {
 									return err
 								}
 								level.Info(archiver.logger).Log("msg", "archiving completed")
 
 								return nil
 							} else {
-								// archive next namespace
-								archiver.currentLabelIndex = 0
+								if err := app.Commit(); err != nil {
+									return err
+								}
+								archiver.s.Timestamp[archiver.namespace[archiver.s.Namespace]] = endTime.Add(-1 * time.Second).Unix()
+								if err := archiver.saveState(); err != nil {
+									return err
+								}
 
-								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
-								matchedLabelsList, err = archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
+								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(archiver.s.Index))
+
+								// archive next namespace
+								archiver.s.Index = 0
+
+								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.s.Namespace]))
+								matchedLabelsList, err = archiver.getMatchedLabelsList(archiver.namespace[archiver.s.Namespace], startTime, endTime)
 								if err != nil {
 									return err
 								}
-								archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
+								archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(len(matchedLabelsList)))
 							}
 						}
 					case <-wt.C:
@@ -243,11 +254,11 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						if err := app.Commit(); err != nil {
 							return err
 						}
-						if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
+						if err := archiver.saveState(); err != nil {
 							return err
 						}
-						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
-						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
+						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
+						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(archiver.s.Index))
 					case <-actx.Done():
 						if !ft.Stop() {
 							<-ft.C
@@ -281,7 +292,7 @@ func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.
 	if archiver.indexer.isIndexed(endTime, []string{namespace}) {
 		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, endTime.Unix()*1000)
 	} else {
-		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, archiver.indexer.indexedTimestampTo.Unix()*1000)
+		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo*1000)
 	}
 
 	return matchedLabelsList, err
@@ -389,19 +400,14 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 	return nil
 }
 
-type State struct {
-	Timestamp int64 `json:"timestamp"`
-	Namespace int   `json:"namespace"`
-	Index     int   `json:"index"`
+type ArchiverState struct {
+	Timestamp map[string]int64 `json:"timestamp"`
+	Namespace int              `json:"namespace"`
+	Index     int              `json:"index"`
 }
 
-func (archiver *Archiver) saveState(timestamp int64, namespace int, index int) error {
-	state := State{
-		Timestamp: timestamp,
-		Namespace: namespace,
-		Index:     index,
-	}
-	buf, err := json.Marshal(state)
+func (archiver *Archiver) saveState() error {
+	buf, err := json.Marshal(archiver.s)
 	if err != nil {
 		return err
 	}
@@ -414,13 +420,13 @@ func (archiver *Archiver) saveState(timestamp int64, namespace int, index int) e
 	return nil
 }
 
-func (archiver *Archiver) loadState() (*State, error) {
+func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	buf, err := ioutil.ReadFile(archiver.storagePath + "/archiver_state.json")
 	if err != nil {
 		return nil, err
 	}
 
-	var state State
+	var state ArchiverState
 	if err = json.Unmarshal(buf, &state); err != nil {
 		return nil, err
 	}
@@ -477,18 +483,13 @@ func (archiver *Archiver) canArchive(endTime time.Time, now time.Time) bool {
 }
 
 func (archiver *Archiver) isArchived(t time.Time, namespace []string) bool {
-	if t.After(archiver.archivedTimestamp) {
-		return false
-	}
-	archived := false
 	for _, n := range namespace {
-		found := false
-		for _, nn := range archiver.namespace {
-			if n == nn {
-				found = true
-			}
+		if _, ok := archiver.s.Timestamp[n]; !ok {
+			return false
 		}
-		archived = archived && found
+		if t.After(time.Unix(archiver.s.Timestamp[n], 0)) {
+			return false
+		}
 	}
-	return archived
+	return true
 }
