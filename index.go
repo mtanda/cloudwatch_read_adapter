@@ -43,9 +43,9 @@ func init() {
 }
 
 type Indexer struct {
-	region               *string
 	cloudwatch           *cloudwatch.CloudWatch
 	db                   *tsdb.DB
+	region               *string
 	namespace            []*string
 	interval             time.Duration
 	indexedTimestampFrom time.Time // TODO: save this status on file
@@ -91,9 +91,9 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 	}
 
 	return &Indexer{
-		region:               cfg.Region[0],
 		cloudwatch:           cloudwatch,
 		db:                   db,
+		region:               cfg.Region[0],
 		namespace:            cfg.Namespace,
 		interval:             time.Duration(10) * time.Minute,
 		indexedTimestampFrom: time.Unix(0, 0),

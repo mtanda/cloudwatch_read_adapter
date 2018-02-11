@@ -46,9 +46,9 @@ func init() {
 }
 
 type Archiver struct {
-	region                *string
 	cloudwatch            *cloudwatch.CloudWatch
 	db                    *tsdb.DB
+	region                *string
 	namespace             []*string
 	statistics            []*string
 	extendedStatistics    []*string
@@ -96,9 +96,9 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 	}
 
 	return &Archiver{
-		region:                cfg.Region[0],
 		cloudwatch:            cloudwatch,
 		db:                    db,
+		region:                cfg.Region[0],
 		namespace:             cfg.Namespace,
 		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
 		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
