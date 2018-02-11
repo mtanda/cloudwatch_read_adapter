@@ -215,10 +215,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 									panic(err) // TODO: fix
 								}
 
-								if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
-									level.Error(archiver.logger).Log("err", err)
-									panic(err)
-								}
 								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex-1], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 
@@ -259,7 +255,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 			wg.Wait()
 			archiver.archivedTimestamp = endTime.Add(-1 * time.Second)
-			if err := archiver.saveState(archiver.archivedTimestamp.Unix(), 0, 0); err != nil {
+			if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
 				level.Error(archiver.logger).Log("err", err)
 				panic(err)
 			}
