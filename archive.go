@@ -235,7 +235,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								matchedLabelsList, err = archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
 								if err != nil {
 									level.Error(archiver.logger).Log("err", err)
-									//continue
 									panic(err) // TODO: fix
 								}
 								archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
