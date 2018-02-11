@@ -36,6 +36,6 @@ func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]labels.Matcher, error
 	return result, nil
 }
 
-func isExtendedStatistics(s *string) bool {
-	return *s != "Sum" && *s != "SampleCount" && *s != "Maximum" && *s != "Minimum" && *s != "Average"
+func isExtendedStatistics(s string) bool {
+	return s != "Sum" && s != "SampleCount" && s != "Maximum" && s != "Minimum" && s != "Average"
 }

@@ -170,7 +170,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 		for _, d := range query.Dimensions {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: *d.Name, Value: *d.Value})
 		}
-		if !isExtendedStatistics(s) {
+		if !isExtendedStatistics(*s) {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: "Statistic", Value: *s})
 		} else {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: "ExtendedStatistic", Value: *s})
@@ -184,7 +184,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	for _, dp := range resp.Datapoints {
 		for _, s := range paramStatistics {
 			value := 0.0
-			if !isExtendedStatistics(s) {
+			if !isExtendedStatistics(*s) {
 				switch *s {
 				case "Sum":
 					value = *dp.Sum

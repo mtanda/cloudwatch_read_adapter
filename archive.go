@@ -366,7 +366,7 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 			for _, dimension := range params.Dimensions {
 				l = append(l, labels.Label{Name: *dimension.Name, Value: *dimension.Value})
 			}
-			if !isExtendedStatistics(s) {
+			if !isExtendedStatistics(*s) {
 				l = append(l, labels.Label{Name: "Statistic", Value: *s})
 			} else {
 				l = append(l, labels.Label{Name: "ExtendedStatistic", Value: *s})
