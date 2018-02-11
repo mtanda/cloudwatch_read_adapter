@@ -247,7 +247,7 @@ func (indexer *Indexer) loadState() (*IndexerState, error) {
 }
 
 func (indexer *Indexer) canIndex(t time.Time) bool {
-	return indexer.indexedTimestampFrom.Before(t)
+	return indexer.indexedTimestampTo.Before(t) || indexer.indexedTimestampFrom.Before(t)
 }
 
 func (indexer *Indexer) isIndexed(t time.Time, namespace []*string) bool {
