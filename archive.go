@@ -215,8 +215,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 									panic(err) // TODO: fix
 								}
 
-								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex-1], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex-1]).Set(float64(archiver.currentLabelIndex))
 
 								// reset index for next archiving cycle
 								archiver.currentLabelIndex = 0
@@ -247,8 +247,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 							level.Error(archiver.logger).Log("err", err)
 							panic(err)
 						}
-						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
 						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
 					}
 				}
 			}()
