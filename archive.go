@@ -150,14 +150,14 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				level.Info(archiver.logger).Log("msg", "already archived")
 				break
 			}
+			if endTime.Add(timeMargin).After(now) {
+				t.Reset(endTime.Add(timeMargin).Sub(now))
+				break
+			}
 
 			level.Info(archiver.logger).Log("msg", "archiving start")
 
-			if endTime.Add(timeMargin).After(now) {
-				endTime = now.Add(-timeMargin)
-			}
 			startTime := endTime.Add(-archiver.interval)
-
 			if !archiver.canArchive(endTime, now) {
 				level.Info(archiver.logger).Log("msg", "not indexed yet, archiving canceled")
 				t.Reset(time.Duration(1) * time.Minute)
