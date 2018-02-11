@@ -48,7 +48,7 @@ type Indexer struct {
 	region               string
 	namespace            []string
 	interval             time.Duration
-	indexedTimestampFrom time.Time // TODO: save this status on file
+	indexedTimestampFrom time.Time
 	indexedTimestampTo   time.Time
 	storagePath          string
 	logger               log.Logger
