@@ -48,6 +48,11 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 
 	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
 	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+	now := time.Now().UTC()
+	if endTime.After(now) {
+		q.EndTimestampMs = now.Unix() * 1000
+		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+	}
 
 	// get archived result
 	if archiver.isArchived(startTime) {
