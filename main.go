@@ -173,6 +173,20 @@ func main() {
 		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, region)
 	}
 
+	for _, n := range readCfg.Targets[0].Archive.Namespace {
+		found := false
+		for _, nn := range readCfg.Targets[0].Index.Namespace {
+			if n == nn {
+				found = true
+			}
+		}
+		if !found {
+			err := "archive target namespace should be indexed"
+			level.Error(logger).Log("err", err)
+			panic(err)
+		}
+	}
+
 	pctx, cancel := context.WithCancel(context.Background())
 	eg, ctx := errgroup.WithContext(pctx)
 	indexer, err := NewIndexer(readCfg.Targets[0].Index, cfg.storagePath, log.With(logger, "component", "indexer"))
