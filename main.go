@@ -59,6 +59,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		}
 		result = append(result, archivedResult...)
 		q.StartTimestampMs = aq.EndTimestampMs
+		level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
 	}
 
 	// parse query
