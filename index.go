@@ -251,7 +251,7 @@ func (indexer *Indexer) canIndex(t time.Time) bool {
 }
 
 func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
-	if t.Before(indexer.indexedTimestampFrom) || t.After(indexer.indexedTimestampTo) {
+	if t.After(indexer.indexedTimestampTo) || (indexer.indexedTimestampTo.After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
 		return false
 	}
 	found := false
