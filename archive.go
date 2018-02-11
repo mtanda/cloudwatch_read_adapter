@@ -48,12 +48,12 @@ func init() {
 type Archiver struct {
 	cloudwatch            *cloudwatch.CloudWatch
 	db                    *tsdb.DB
+	indexer               *Indexer
 	region                *string
 	namespace             []*string
 	statistics            []*string
 	extendedStatistics    []*string
 	interval              time.Duration
-	indexer               *Indexer
 	archivedTimestamp     time.Time
 	currentNamespaceIndex int
 	currentLabelIndex     int
@@ -98,12 +98,12 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 	return &Archiver{
 		cloudwatch:            cloudwatch,
 		db:                    db,
+		indexer:               indexer,
 		region:                cfg.Region[0],
 		namespace:             cfg.Namespace,
 		statistics:            []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
 		extendedStatistics:    []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
 		interval:              time.Duration(24) * time.Hour,
-		indexer:               indexer,
 		archivedTimestamp:     time.Unix(0, 0),
 		currentNamespaceIndex: 0,
 		currentLabelIndex:     0,
