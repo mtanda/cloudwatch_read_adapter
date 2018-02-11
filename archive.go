@@ -335,18 +335,20 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 			//}
 
 			value := 0.0
-			switch *s {
-			case "Sum":
-				value = *dp.Sum
-			case "SampleCount":
-				value = *dp.SampleCount
-			case "Maximum":
-				value = *dp.Maximum
-			case "Minimum":
-				value = *dp.Minimum
-			case "Average":
-				value = *dp.Average
-			default:
+			if !isExtendedStatistics(*s) {
+				switch *s {
+				case "Sum":
+					value = *dp.Sum
+				case "SampleCount":
+					value = *dp.SampleCount
+				case "Maximum":
+					value = *dp.Maximum
+				case "Minimum":
+					value = *dp.Minimum
+				case "Average":
+					value = *dp.Average
+				}
+			} else {
 				if dp.ExtendedStatistics == nil {
 					continue
 				}
