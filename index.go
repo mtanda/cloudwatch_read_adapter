@@ -151,7 +151,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				if err != nil {
 					cloudwatchApiCalls.WithLabelValues("ListMetrics", "error").Add(float64(1))
 					level.Error(indexer.logger).Log("err", err)
-					continue
+					continue // ignore temporary error
 				}
 
 				app := indexer.db.Appender()
@@ -186,8 +186,8 @@ func (indexer *Indexer) index(ctx context.Context) error {
 			}
 			level.Info(indexer.logger).Log("msg", "indexing completed")
 		case <-ctx.Done():
-			level.Info(indexer.logger).Log("msg", "indexing stopped")
 			indexer.db.Close()
+			level.Info(indexer.logger).Log("msg", "indexing stopped")
 			return nil
 		}
 	}

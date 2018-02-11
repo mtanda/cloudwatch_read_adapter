@@ -266,8 +266,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			}
 			level.Info(archiver.logger).Log("msg", "archiving completed")
 		case <-ctx.Done():
-			level.Info(archiver.logger).Log("msg", "archiving stopped")
 			archiver.db.Close()
+			level.Info(archiver.logger).Log("msg", "archiving stopped")
 			return nil
 		}
 	}
