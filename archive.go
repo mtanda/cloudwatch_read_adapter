@@ -178,7 +178,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			wg.Add(1)
 			go func() {
 				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
-				matchedLabelsList, err := archiver.getMatchedLabelsList(startTime, endTime)
+				matchedLabelsList, err := archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
 				if err != nil {
 					level.Error(archiver.logger).Log("err", err)
 					return // TODO: retry?
@@ -231,7 +231,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								archiver.currentNamespaceIndex++
 
 								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
-								matchedLabelsList, err = archiver.getMatchedLabelsList(startTime, endTime)
+								matchedLabelsList, err = archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
 								if err != nil {
 									level.Error(archiver.logger).Log("err", err)
 									//continue
@@ -273,8 +273,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 	}
 }
 
-func (archiver *Archiver) getMatchedLabelsList(startTime time.Time, endTime time.Time) ([]labels.Labels, error) {
-	namespace := archiver.namespace[archiver.currentNamespaceIndex]
+func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.Time, endTime time.Time) ([]labels.Labels, error) {
 	matchers := []labels.Matcher{labels.NewEqualMatcher("Namespace", namespace)}
 	var matchedLabelsList []labels.Labels
 	var err error
