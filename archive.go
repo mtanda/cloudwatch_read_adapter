@@ -199,6 +199,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 						if archiver.s.Index == len(matchedLabelsList) {
 							level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
+							lastNamespace := archiver.s.Namespace
 							archiver.s.Namespace++
 							if archiver.s.Namespace == len(archiver.namespace) {
 								// archive finished
@@ -212,10 +213,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := app.Commit(); err != nil {
 									return err
 								}
-								archiver.s.Timestamp[archiver.namespace[archiver.s.Namespace-1]] = endTime.Add(-1 * time.Second).Unix()
+								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
 
-								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace-1], "index", archiver.s.Index, "len", len(matchedLabelsList))
-								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.s.Namespace-1]).Set(float64(archiver.s.Index))
+								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
 
 								// reset index for next archiving cycle
 								archiver.s.Index = 0
@@ -231,13 +232,13 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := app.Commit(); err != nil {
 									return err
 								}
-								archiver.s.Timestamp[archiver.namespace[archiver.s.Namespace]] = endTime.Add(-1 * time.Second).Unix()
+								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
 								if err := archiver.saveState(); err != nil {
 									return err
 								}
 
-								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
-								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(archiver.s.Index))
+								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
 
 								// archive next namespace
 								archiver.s.Index = 0
