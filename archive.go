@@ -256,6 +256,15 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						}
 						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
+					case <-ctx.Done():
+						if !ft.Stop() {
+							<-ft.C
+						}
+						if !wt.Stop() {
+							<-wt.C
+						}
+
+						wg.Done()
 					}
 				}
 			}()
