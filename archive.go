@@ -462,7 +462,7 @@ func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
 
 func (archiver *Archiver) canArchive(endTime time.Time, now time.Time) bool {
 	if !archiver.indexer.canIndex(endTime) && !archiver.indexer.isExpired(now, archiver.namespace) {
-		return true
+		return true // for initial archiving
 	}
 	if !archiver.indexer.isIndexed(endTime, archiver.namespace) {
 		return false
