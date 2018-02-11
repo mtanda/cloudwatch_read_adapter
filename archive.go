@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"math"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -174,14 +173,12 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			cps := math.Floor(400 * apiCallRate) // support 400 transactions per second (TPS). https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_limits.html
 			ft := time.NewTimer(0)
 			wt := time.NewTimer(0)
-			wg := &sync.WaitGroup{}
-			wg.Add(1)
-			go func() {
+			eg, actx := errgroup.WithContext(ctx)
+			(*eg).Go(func() error {
 				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
 				matchedLabelsList, err := archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
 				if err != nil {
-					level.Error(archiver.logger).Log("err", err)
-					panic(err)
+					return err
 				}
 				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 
@@ -194,8 +191,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						matchedLabels := matchedLabelsList[archiver.currentLabelIndex]
 						err = archiver.process(app, matchedLabels, startTime, endTime)
 						if err != nil {
-							level.Error(archiver.logger).Log("err", err)
-							panic(err) // TODO: more safer stop
+							return err
 						}
 
 						archiver.currentLabelIndex++
@@ -211,8 +207,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								}
 
 								if err := app.Commit(); err != nil {
-									level.Error(archiver.logger).Log("err", err)
-									panic(err) // TODO: fix
+									return err
 								}
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex-1], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
@@ -224,12 +219,11 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 								archiver.archivedTimestamp = endTime.Add(-1 * time.Second)
 								if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
-									level.Error(archiver.logger).Log("err", err)
-									panic(err)
+									return err
 								}
 								level.Info(archiver.logger).Log("msg", "archiving completed")
 
-								wg.Done()
+								return nil
 							} else {
 								// archive next namespace
 								archiver.currentLabelIndex = 0
@@ -237,8 +231,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
 								matchedLabelsList, err = archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
 								if err != nil {
-									level.Error(archiver.logger).Log("err", err)
-									panic(err) // TODO: fix
+									return err
 								}
 								archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 							}
@@ -247,16 +240,14 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						wt.Reset(1 * time.Minute)
 
 						if err := app.Commit(); err != nil {
-							level.Error(archiver.logger).Log("err", err)
-							panic(err) // TODO: fix
+							return err
 						}
 						if err := archiver.saveState(archiver.archivedTimestamp.Unix(), archiver.currentNamespaceIndex, archiver.currentLabelIndex); err != nil {
-							level.Error(archiver.logger).Log("err", err)
-							panic(err)
+							return err
 						}
 						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
-					case <-ctx.Done():
+					case <-actx.Done():
 						if !ft.Stop() {
 							<-ft.C
 						}
@@ -264,12 +255,16 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 							<-wt.C
 						}
 
-						wg.Done()
+						return nil
 					}
 				}
-			}()
+			})
 
-			wg.Wait()
+			if err := eg.Wait(); err != nil {
+				level.Error(archiver.logger).Log("err", err)
+				archiver.db.Close()
+				return err
+			}
 		case <-ctx.Done():
 			archiver.db.Close()
 			level.Info(archiver.logger).Log("msg", "archiving stopped")
