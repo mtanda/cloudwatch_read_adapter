@@ -66,7 +66,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 	var queries []*cloudwatch.GetMetricStatisticsInput
 	var err error
 	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
-	if indexer.isExpired(endTime, []*string{&namespace}) {
+	if indexer.isExpired(endTime, []string{namespace}) {
 		level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
 		region, queries, err = getQueryWithoutIndex(q, indexer)
 		if err != nil {
@@ -160,10 +160,10 @@ func main() {
 		panic(err)
 	}
 	if len(readCfg.Targets[0].Index.Region) == 0 {
-		readCfg.Targets[0].Index.Region = append(readCfg.Targets[0].Index.Region, &region)
+		readCfg.Targets[0].Index.Region = append(readCfg.Targets[0].Index.Region, region)
 	}
 	if len(readCfg.Targets[0].Archive.Region) == 0 {
-		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, &region)
+		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, region)
 	}
 
 	pctx, cancel := context.WithCancel(context.Background())

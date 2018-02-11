@@ -49,8 +49,8 @@ type Archiver struct {
 	cloudwatch            *cloudwatch.CloudWatch
 	db                    *tsdb.DB
 	indexer               *Indexer
-	region                *string
-	namespace             []*string
+	region                string
+	namespace             []string
 	statistics            []*string
 	extendedStatistics    []*string
 	interval              time.Duration
@@ -71,7 +71,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		return nil, err
 	}
 
-	awsCfg := &aws.Config{Region: cfg.Region[0]}
+	awsCfg := &aws.Config{Region: aws.String(cfg.Region[0])}
 	sess, err := session.NewSession(awsCfg)
 	if err != nil {
 		return nil, err
@@ -117,14 +117,14 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 		return
 	}
 
-	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive region = %s", *archiver.region))
+	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive region = %s", archiver.region))
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive namespace = %+v", archiver.namespace))
 	state, err := archiver.loadState()
 	if err == nil {
 		archiver.archivedTimestamp = time.Unix(state.Timestamp, 0)
 		archiver.currentNamespaceIndex = state.Namespace
 		archiver.currentLabelIndex = state.Index
-		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", archiver.archivedTimestamp, "namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex)
+		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", archiver.archivedTimestamp, "namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex)
 	}
 
 	(*eg).Go(func() error {
@@ -166,8 +166,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 			if archiver.currentNamespaceIndex == 0 && archiver.currentLabelIndex == 0 {
 				for _, namespace := range archiver.namespace {
-					archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
-					archiverTargetsTotal.WithLabelValues(*namespace).Set(float64(0))
+					archiverTargetsProgress.WithLabelValues(namespace).Set(float64(0))
+					archiverTargetsTotal.WithLabelValues(namespace).Set(float64(0))
 				}
 			}
 
@@ -177,13 +177,13 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			wt := time.NewTimer(0)
 			wg.Add(1)
 			go func() {
-				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", *archiver.namespace[archiver.currentNamespaceIndex]))
+				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
 				matchedLabelsList, err := archiver.getMatchedLabelsList(startTime, endTime)
 				if err != nil {
 					level.Error(archiver.logger).Log("err", err)
 					return // TODO: retry?
 				}
-				archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
+				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 
 				app := archiver.db.Appender()
 				for {
@@ -217,8 +217,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 									level.Error(archiver.logger).Log("err", err)
 									panic(err)
 								}
-								archiverTargetsProgress.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
-								level.Info(archiver.logger).Log("namespace", *archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+								archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(archiver.currentLabelIndex))
+								level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.currentNamespaceIndex], "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 
 								// reset index for next archiving cycle
 								archiver.currentLabelIndex = 0
@@ -230,14 +230,14 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								archiver.currentLabelIndex = 0
 								archiver.currentNamespaceIndex++
 
-								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", *archiver.namespace[archiver.currentNamespaceIndex]))
+								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
 								matchedLabelsList, err = archiver.getMatchedLabelsList(startTime, endTime)
 								if err != nil {
 									level.Error(archiver.logger).Log("err", err)
 									//continue
 									panic(err) // TODO: fix
 								}
-								archiverTargetsTotal.WithLabelValues(*archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
+								archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 							}
 						}
 					case <-wt.C:
@@ -252,8 +252,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 							level.Error(archiver.logger).Log("err", err)
 							panic(err)
 						}
-						archiverTargetsProgress.WithLabelValues(*namespace).Set(float64(archiver.currentLabelIndex))
-						level.Info(archiver.logger).Log("namespace", *namespace, "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
+						archiverTargetsProgress.WithLabelValues(namespace).Set(float64(archiver.currentLabelIndex))
+						level.Info(archiver.logger).Log("namespace", namespace, "index", archiver.currentLabelIndex, "len", len(matchedLabelsList))
 					}
 				}
 			}()
@@ -275,10 +275,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 func (archiver *Archiver) getMatchedLabelsList(startTime time.Time, endTime time.Time) ([]labels.Labels, error) {
 	namespace := archiver.namespace[archiver.currentNamespaceIndex]
-	matchers := []labels.Matcher{labels.NewEqualMatcher("Namespace", *namespace)}
+	matchers := []labels.Matcher{labels.NewEqualMatcher("Namespace", namespace)}
 	var matchedLabelsList []labels.Labels
 	var err error
-	if archiver.indexer.isIndexed(endTime, []*string{namespace}) {
+	if archiver.indexer.isIndexed(endTime, []string{namespace}) {
 		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, endTime.Unix()*1000)
 	} else {
 		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, archiver.indexer.indexedTimestampTo.Unix()*1000)
@@ -360,7 +360,7 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 			}
 
 			l := make(labels.Labels, 0)
-			l = append(l, labels.Label{Name: "Region", Value: *archiver.region})
+			l = append(l, labels.Label{Name: "Region", Value: archiver.region})
 			l = append(l, labels.Label{Name: "Namespace", Value: *params.Namespace})
 			l = append(l, labels.Label{Name: "__name__", Value: *params.MetricName})
 			for _, dimension := range params.Dimensions {

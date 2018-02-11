@@ -45,8 +45,8 @@ func init() {
 type Indexer struct {
 	cloudwatch           *cloudwatch.CloudWatch
 	db                   *tsdb.DB
-	region               *string
-	namespace            []*string
+	region               string
+	namespace            []string
 	interval             time.Duration
 	indexedTimestampFrom time.Time // TODO: save this status on file
 	indexedTimestampTo   time.Time
@@ -64,7 +64,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		return nil, err
 	}
 
-	awsCfg := &aws.Config{Region: cfg.Region[0]}
+	awsCfg := &aws.Config{Region: aws.String(cfg.Region[0])}
 	sess, err := session.NewSession(awsCfg)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 }
 
 func (indexer *Indexer) start(eg *errgroup.Group, ctx context.Context) {
-	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index region = %s", *indexer.region))
+	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index region = %s", indexer.region))
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index namespace = %+v", indexer.namespace))
 	indexer.indexedTimestampFrom = time.Now().UTC()
 	state, err := indexer.loadState()
@@ -130,15 +130,15 @@ func (indexer *Indexer) index(ctx context.Context) error {
 
 			now := time.Now().UTC()
 			for _, namespace := range indexer.namespace {
-				indexerTargetsProgress.WithLabelValues(*namespace).Set(float64(0))
-				indexerTargetsTotal.WithLabelValues(*namespace).Set(float64(0))
+				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(0))
+				indexerTargetsTotal.WithLabelValues(namespace).Set(float64(0))
 			}
 			for _, namespace := range indexer.namespace {
-				level.Info(indexer.logger).Log("msg", fmt.Sprintf("indexing namespace = %s", *namespace))
+				level.Info(indexer.logger).Log("msg", fmt.Sprintf("indexing namespace = %s", namespace))
 
 				var resp cloudwatch.ListMetricsOutput
 				err := indexer.cloudwatch.ListMetricsPages(&cloudwatch.ListMetricsInput{
-					Namespace: namespace,
+					Namespace: aws.String(namespace),
 				},
 					func(page *cloudwatch.ListMetricsOutput, lastPage bool) bool {
 						metrics, _ := awsutil.ValuesAtPath(page, "Metrics")
@@ -155,10 +155,10 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				}
 
 				app := indexer.db.Appender()
-				indexerTargetsTotal.WithLabelValues(*namespace).Set(float64(len(resp.Metrics)))
+				indexerTargetsTotal.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
 				for _, metric := range resp.Metrics {
 					l := make(labels.Labels, 0)
-					l = append(l, labels.Label{Name: "Region", Value: *indexer.region})
+					l = append(l, labels.Label{Name: "Region", Value: indexer.region})
 					l = append(l, labels.Label{Name: "Namespace", Value: *metric.Namespace})
 					l = append(l, labels.Label{Name: "__name__", Value: *metric.MetricName})
 					for _, dimension := range metric.Dimensions {
@@ -176,7 +176,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					level.Error(indexer.logger).Log("err", err)
 					panic(err)
 				}
-				indexerTargetsProgress.WithLabelValues(*namespace).Set(float64(len(resp.Metrics)))
+				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
 			}
 
 			indexer.indexedTimestampTo = now
@@ -250,14 +250,14 @@ func (indexer *Indexer) canIndex(t time.Time) bool {
 	return indexer.indexedTimestampTo.Before(t) || indexer.indexedTimestampFrom.Before(t)
 }
 
-func (indexer *Indexer) isIndexed(t time.Time, namespace []*string) bool {
+func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
 	if t.Before(indexer.indexedTimestampFrom) || t.After(indexer.indexedTimestampTo) {
 		return false
 	}
 	found := false
 	for _, n := range indexer.namespace {
 		for _, nn := range namespace {
-			if *n == *nn {
+			if n == nn {
 				found = true
 			}
 		}
@@ -265,7 +265,7 @@ func (indexer *Indexer) isIndexed(t time.Time, namespace []*string) bool {
 	return found
 }
 
-func (indexer *Indexer) isExpired(t time.Time, namespace []*string) bool {
+func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
 	t = t.Add(-indexer.interval)
 	if t.Before(indexer.indexedTimestampFrom) {
 		t = indexer.indexedTimestampFrom

@@ -16,15 +16,15 @@ type Target struct {
 }
 
 type IndexConfig struct {
-	Region    []*string `yaml:"region"`
-	Namespace []*string `yaml:"namespace"`
-	Retention string    `yaml:"retention"`
+	Region    []string `yaml:"region"`
+	Namespace []string `yaml:"namespace"`
+	Retention string   `yaml:"retention"`
 }
 
 type ArchiveConfig struct {
-	Region    []*string `yaml:"region"`
-	Namespace []*string `yaml:"namespace"`
-	Retention string    `yaml:"retention"`
+	Region    []string `yaml:"region"`
+	Namespace []string `yaml:"namespace"`
+	Retention string   `yaml:"retention"`
 }
 
 func LoadConfig(configFile string) (*Config, error) {
