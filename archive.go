@@ -387,7 +387,6 @@ type State struct {
 	Timestamp int64 `json:"timestamp"`
 	Namespace int   `json:"namespace"`
 	Index     int   `json:"index"`
-	//Labels    string `json:"labels"`
 }
 
 func (archiver *Archiver) saveState(timestamp int64, namespace int, index int) error {
