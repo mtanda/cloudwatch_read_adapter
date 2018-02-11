@@ -143,6 +143,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 		case <-t.C:
 			now := time.Now().UTC()
 			endTime := now.Truncate(archiver.interval)
+			startTime := endTime.Add(-archiver.interval)
 			nextStartTime := endTime.Add(archiver.interval).Add(timeMargin)
 			t.Reset(nextStartTime.Sub(now))
 
@@ -157,7 +158,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 			level.Info(archiver.logger).Log("msg", "archiving start")
 
-			startTime := endTime.Add(-archiver.interval)
 			if !archiver.canArchive(endTime, now) {
 				level.Info(archiver.logger).Log("msg", "not indexed yet, archiving canceled")
 				t.Reset(time.Duration(1) * time.Minute)
