@@ -254,15 +254,17 @@ func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
 	if t.After(indexer.indexedTimestampTo) || (indexer.indexedTimestampTo.After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
 		return false
 	}
-	found := false
-	for _, n := range indexer.namespace {
-		for _, nn := range namespace {
+	indexed := false
+	for _, n := range namespace {
+		found := false
+		for _, nn := range indexer.namespace {
 			if n == nn {
 				found = true
 			}
 		}
+		indexed = indexed && found
 	}
-	return found
+	return indexed
 }
 
 func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {

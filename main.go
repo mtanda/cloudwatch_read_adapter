@@ -55,7 +55,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 	}
 
 	// get archived result
-	if archiver.isArchived(startTime) {
+	if archiver.isArchived(startTime, []string{namespace}) {
 		level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
 		aq := *q
 		aq.EndTimestampMs = archiver.archivedTimestamp.UnixNano() / 1000 / 1000

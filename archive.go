@@ -146,7 +146,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			nextStartTime := endTime.Add(archiver.interval).Add(timeMargin)
 			t.Reset(nextStartTime.Sub(now))
 
-			if archiver.isArchived(endTime.Add(-1 * time.Second)) {
+			if archiver.isArchived(endTime.Add(-1*time.Second), archiver.namespace) {
 				level.Info(archiver.logger).Log("msg", "already archived")
 				break
 			}
@@ -476,6 +476,19 @@ func (archiver *Archiver) canArchive(endTime time.Time, now time.Time) bool {
 	return true
 }
 
-func (archiver *Archiver) isArchived(t time.Time) bool {
-	return t.Before(archiver.archivedTimestamp) || t.Equal(archiver.archivedTimestamp)
+func (archiver *Archiver) isArchived(t time.Time, namespace []string) bool {
+	if t.After(archiver.archivedTimestamp) {
+		return false
+	}
+	archived := false
+	for _, n := range namespace {
+		found := false
+		for _, nn := range archiver.namespace {
+			if n == nn {
+				found = true
+			}
+		}
+		archived = archived && found
+	}
+	return archived
 }
