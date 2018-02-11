@@ -167,14 +167,14 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					ref, err := app.Add(l, now.Unix()*1000, 0.0)
 					if err != nil {
 						level.Error(indexer.logger).Log("err", err)
-						panic(err)
+						return err
 					}
 					_ = ref
 				}
 
 				if err := app.Commit(); err != nil {
 					level.Error(indexer.logger).Log("err", err)
-					panic(err)
+					return err
 				}
 				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
 			}
@@ -182,7 +182,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 			indexer.indexedTimestampTo = now
 			if err := indexer.saveState(indexer.indexedTimestampTo.Unix()); err != nil {
 				level.Error(indexer.logger).Log("err", err)
-				panic(err)
+				return err
 			}
 			level.Info(indexer.logger).Log("msg", "indexing completed")
 		case <-ctx.Done():
