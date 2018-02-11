@@ -134,7 +134,6 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 
 func (archiver *Archiver) archive(ctx context.Context) error {
 	timeMargin := 15 * time.Minute // wait until CloudWatch record metrics
-	//archiveTime := archiver.interval / 4
 	apiCallRate := 0.5
 
 	t := time.NewTimer(1 * time.Minute)
