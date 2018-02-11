@@ -171,10 +171,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				}
 			}
 
-			wg := &sync.WaitGroup{}
 			cps := math.Floor(400 * apiCallRate) // support 400 transactions per second (TPS). https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_limits.html
 			ft := time.NewTimer(0)
 			wt := time.NewTimer(0)
+			wg := &sync.WaitGroup{}
 			wg.Add(1)
 			go func() {
 				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.currentNamespaceIndex]))
