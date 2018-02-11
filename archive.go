@@ -181,7 +181,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				matchedLabelsList, err := archiver.getMatchedLabelsList(archiver.namespace[archiver.currentNamespaceIndex], startTime, endTime)
 				if err != nil {
 					level.Error(archiver.logger).Log("err", err)
-					return // TODO: retry?
+					panic(err)
 				}
 				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.currentNamespaceIndex]).Set(float64(len(matchedLabelsList)))
 
@@ -195,6 +195,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						err = archiver.process(app, matchedLabels, startTime, endTime)
 						if err != nil {
 							level.Error(archiver.logger).Log("err", err)
+							panic(err)
 						}
 
 						archiver.currentLabelIndex++
