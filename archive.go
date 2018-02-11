@@ -141,12 +141,13 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 	for {
 		select {
 		case <-t.C:
-			t.Reset(archiver.interval)
+			now := time.Now().UTC()
+			endTime := now.Truncate(archiver.interval)
+			nextStartTime := endTime.Add(archiver.interval).Add(timeMargin)
+			t.Reset(nextStartTime.Sub(now))
 
 			level.Info(archiver.logger).Log("msg", "archiving start")
 
-			now := time.Now().UTC()
-			endTime := now.Truncate(archiver.interval)
 			if endTime.Add(timeMargin).After(now) {
 				endTime = now.Add(-timeMargin)
 			}
