@@ -255,7 +255,7 @@ func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
 	if t.After(time.Unix(indexer.s.TimestampTo, 0)) || (time.Unix(indexer.s.TimestampTo, 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
 		return false
 	}
-	indexed := false
+	indexed := true
 	for _, n := range namespace {
 		found := false
 		for _, nn := range indexer.namespace {
