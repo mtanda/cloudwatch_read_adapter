@@ -124,7 +124,7 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 		archiver.s = state
 		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", fmt.Sprintf("%+v", archiver.s.Timestamp), "namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index)
 	} else {
-		level.Error(indexer.logger).Log("err", err)
+		level.Error(archiver.logger).Log("err", err)
 	}
 
 	(*eg).Go(func() error {
