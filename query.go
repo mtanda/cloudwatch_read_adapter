@@ -77,7 +77,12 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 	if err != nil {
 		return region, queries, err
 	}
-	matchedLabelsList, err := indexer.getMatchedLables(matchers, q.StartTimestampMs, q.EndTimestampMs)
+	iq := *q
+	if time.Unix(q.EndTimestampMs/1000, 0).Sub(time.Unix(q.StartTimestampMs/1000, 0)) < 2*indexer.interval {
+		// expand enough long period to match index
+		iq.StartTimestampMs = time.Unix(q.EndTimestampMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
+	}
+	matchedLabelsList, err := indexer.getMatchedLables(matchers, iq.StartTimestampMs, q.EndTimestampMs)
 	if err != nil {
 		return region, queries, err
 	}
