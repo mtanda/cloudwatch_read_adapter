@@ -209,7 +209,10 @@ func (indexer *Indexer) getMatchedLables(matchers []labels.Matcher, start int64,
 	}
 	defer querier.Close()
 
-	ss := querier.Select(matchers...)
+	ss, err := querier.Select(matchers...)
+	if err != nil {
+		return nil, err
+	}
 	for ss.Next() {
 		s := ss.At()
 		matchedLabels = append(matchedLabels, s.Labels())

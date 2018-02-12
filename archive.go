@@ -453,7 +453,10 @@ func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average
-	ss := querier.Select(matchers...)
+	ss, err := querier.Select(matchers...)
+	if err != nil {
+		return nil, err
+	}
 	for ss.Next() {
 		ts := &prompb.TimeSeries{}
 		s := ss.At()
