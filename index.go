@@ -91,7 +91,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 	}
 
 	s := &IndexerState{
-		TimestampTo: 0,
+		TimestampTo: make(map[string]int64),
 	}
 
 	return &Indexer{
@@ -180,14 +180,16 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					level.Error(indexer.logger).Log("err", err)
 					return err
 				}
+
+				indexer.s.TimestampTo[namespace] = now.Unix()
+				if err := indexer.saveState(); err != nil {
+					level.Error(indexer.logger).Log("err", err)
+					return err
+				}
+
 				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
 			}
 
-			indexer.s.TimestampTo = now.Unix()
-			if err := indexer.saveState(); err != nil {
-				level.Error(indexer.logger).Log("err", err)
-				return err
-			}
 			level.Info(indexer.logger).Log("msg", "indexing completed")
 		case <-ctx.Done():
 			indexer.db.Close()
@@ -216,7 +218,7 @@ func (indexer *Indexer) getMatchedLables(matchers []labels.Matcher, start int64,
 }
 
 type IndexerState struct {
-	TimestampTo int64 `json:"timestamp"`
+	TimestampTo map[string]int64 `json:"timestamp"`
 }
 
 func (indexer *Indexer) saveState() error {
@@ -247,31 +249,32 @@ func (indexer *Indexer) loadState() (*IndexerState, error) {
 	return &state, nil
 }
 
-func (indexer *Indexer) canIndex(t time.Time) bool {
-	return time.Unix(indexer.s.TimestampTo, 0).Before(t) || indexer.indexedTimestampFrom.Before(t)
+func (indexer *Indexer) canIndex(t time.Time, namespace []string) bool {
+	result := true
+	for _, n := range namespace {
+		result = result && (time.Unix(indexer.s.TimestampTo[n], 0).Before(t) || indexer.indexedTimestampFrom.Before(t))
+	}
+	return result
 }
 
 func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
-	if t.After(time.Unix(indexer.s.TimestampTo, 0)) || (time.Unix(indexer.s.TimestampTo, 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
-		return false
-	}
-	indexed := true
 	for _, n := range namespace {
-		found := false
-		for _, nn := range indexer.namespace {
-			if n == nn {
-				found = true
-			}
+		if _, ok := indexer.s.TimestampTo[n]; !ok {
+			return false
 		}
-		indexed = indexed && found
+		if t.After(time.Unix(indexer.s.TimestampTo[n], 0)) || (time.Unix(indexer.s.TimestampTo[n], 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom)) {
+			return false
+		}
 	}
-	return indexed
+	return true
 }
 
 func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
 	t = t.Add(-indexer.interval)
-	if time.Unix(indexer.s.TimestampTo, 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom) {
-		t = indexer.indexedTimestampFrom
+	for _, n := range namespace {
+		if time.Unix(indexer.s.TimestampTo[n], 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom) {
+			t = indexer.indexedTimestampFrom
+		}
 	}
 	return !indexer.isIndexed(t, namespace)
 }

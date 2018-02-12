@@ -157,7 +157,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 			level.Info(archiver.logger).Log("msg", "archiving start")
 
-			if !archiver.canArchive(endTime, now) {
+			if !archiver.canArchive(endTime, now, archiver.namespace) {
 				level.Info(archiver.logger).Log("msg", "not indexed yet, archiving canceled")
 				t.Reset(time.Duration(1) * time.Minute)
 				break
@@ -295,7 +295,7 @@ func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.
 	if archiver.indexer.isIndexed(endTime, []string{namespace}) {
 		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, endTime.Unix()*1000)
 	} else {
-		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo*1000)
+		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo[namespace]*1000)
 	}
 
 	return matchedLabelsList, err
@@ -475,11 +475,11 @@ func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
 	return result, nil
 }
 
-func (archiver *Archiver) canArchive(endTime time.Time, now time.Time) bool {
-	if !archiver.indexer.canIndex(endTime) && !archiver.indexer.isExpired(now, archiver.namespace) {
+func (archiver *Archiver) canArchive(endTime time.Time, now time.Time, namespace []string) bool {
+	if !archiver.indexer.canIndex(endTime, namespace) && !archiver.indexer.isExpired(now, namespace) {
 		return true // for initial archiving
 	}
-	if !archiver.indexer.isIndexed(endTime, archiver.namespace) {
+	if !archiver.indexer.isIndexed(endTime, namespace) {
 		return false
 	}
 	return true
