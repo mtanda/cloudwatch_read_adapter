@@ -271,6 +271,7 @@ func main() {
 		}
 	}()
 
+	level.Info(logger).Log("msg", "Listening on "+cfg.listenAddress)
 	if err := srv.ListenAndServe(); err != nil {
 		level.Error(logger).Log("err", err)
 	}
