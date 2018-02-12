@@ -199,7 +199,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 						}
 
 						if archiver.s.Index == len(matchedLabelsList) {
-							level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 							lastNamespace := archiver.s.Namespace
 							archiver.s.Namespace++
 							if archiver.s.Namespace == len(archiver.namespace) {
