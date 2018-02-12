@@ -183,6 +183,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				}
 				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(len(matchedLabelsList)))
 
+				archiver.db.DisableCompactions()
 				app := archiver.db.Appender()
 				for {
 					select {
@@ -210,6 +211,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 									<-wt.C
 								}
 
+								archiver.db.EnableCompactions()
 								if err := app.Commit(); err != nil {
 									return err
 								}
