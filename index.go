@@ -111,10 +111,11 @@ func (indexer *Indexer) start(eg *errgroup.Group, ctx context.Context) {
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index region = %s", indexer.region))
 	level.Info(indexer.logger).Log("msg", fmt.Sprintf("index namespace = %+v", indexer.namespace))
 	indexer.indexedTimestampFrom = time.Now().UTC()
-	state, err := indexer.loadState()
-	if err == nil {
+	if state, err := indexer.loadState(); err == nil {
 		indexer.s = state
 		level.Info(indexer.logger).Log("msg", "state loaded", "timestamp", indexer.s.TimestampTo)
+	} else {
+		level.Error(indexer.logger).Log("err", err)
 	}
 
 	(*eg).Go(func() error {

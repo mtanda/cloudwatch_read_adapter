@@ -120,10 +120,11 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive region = %s", archiver.region))
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive namespace = %+v", archiver.namespace))
-	state, err := archiver.loadState()
-	if err == nil {
+	if state, err := archiver.loadState(); err == nil {
 		archiver.s = state
 		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", fmt.Sprintf("%+v", archiver.s.Timestamp), "namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index)
+	} else {
+		level.Error(indexer.logger).Log("err", err)
 	}
 
 	(*eg).Go(func() error {
