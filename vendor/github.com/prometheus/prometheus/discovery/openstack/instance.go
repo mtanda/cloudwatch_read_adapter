@@ -14,20 +14,21 @@
 package openstack
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/floatingips"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/pagination"
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"golang.org/x/net/context"
 
-	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/prometheus/prometheus/util/strutil"
 )
 
@@ -54,19 +55,22 @@ type InstanceDiscovery struct {
 // NewInstanceDiscovery returns a new instance discovery.
 func NewInstanceDiscovery(opts *gophercloud.AuthOptions,
 	interval time.Duration, port int, region string, l log.Logger) *InstanceDiscovery {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
 	return &InstanceDiscovery{authOpts: opts,
 		region: region, interval: interval, port: port, logger: l}
 }
 
-// Run implements the TargetProvider interface.
-func (i *InstanceDiscovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
+// Run implements the Discoverer interface.
+func (i *InstanceDiscovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	// Get an initial set right away.
 	tg, err := i.refresh()
 	if err != nil {
-		i.logger.Error(err)
+		level.Error(i.logger).Log("msg", "Unable to refresh target groups", "err", err.Error())
 	} else {
 		select {
-		case ch <- []*config.TargetGroup{tg}:
+		case ch <- []*targetgroup.Group{tg}:
 		case <-ctx.Done():
 			return
 		}
@@ -80,12 +84,12 @@ func (i *InstanceDiscovery) Run(ctx context.Context, ch chan<- []*config.TargetG
 		case <-ticker.C:
 			tg, err := i.refresh()
 			if err != nil {
-				i.logger.Error(err)
+				level.Error(i.logger).Log("msg", "Unable to refresh target groups", "err", err.Error())
 				continue
 			}
 
 			select {
-			case ch <- []*config.TargetGroup{tg}:
+			case ch <- []*targetgroup.Group{tg}:
 			case <-ctx.Done():
 				return
 			}
@@ -95,7 +99,7 @@ func (i *InstanceDiscovery) Run(ctx context.Context, ch chan<- []*config.TargetG
 	}
 }
 
-func (i *InstanceDiscovery) refresh() (*config.TargetGroup, error) {
+func (i *InstanceDiscovery) refresh() (*targetgroup.Group, error) {
 	var err error
 	t0 := time.Now()
 	defer func() {
@@ -141,7 +145,7 @@ func (i *InstanceDiscovery) refresh() (*config.TargetGroup, error) {
 	// https://developer.openstack.org/api-ref/compute/#list-servers
 	opts := servers.ListOpts{}
 	pager := servers.List(client, opts)
-	tg := &config.TargetGroup{
+	tg := &targetgroup.Group{
 		Source: fmt.Sprintf("OS_" + i.region),
 	}
 	err = pager.EachPage(func(page pagination.Page) (bool, error) {
@@ -155,27 +159,27 @@ func (i *InstanceDiscovery) refresh() (*config.TargetGroup, error) {
 				openstackLabelInstanceID: model.LabelValue(s.ID),
 			}
 			if len(s.Addresses) == 0 {
-				i.logger.Info("Got no IP address for instance %s", s.ID)
+				level.Info(i.logger).Log("msg", "Got no IP address", "instance", s.ID)
 				continue
 			}
 			for _, address := range s.Addresses {
 				md, ok := address.([]interface{})
 				if !ok {
-					i.logger.Warn("Invalid type for address, expected array")
+					level.Warn(i.logger).Log("msg", "Invalid type for address, expected array")
 					continue
 				}
 				if len(md) == 0 {
-					i.logger.Debugf("Got no IP address for instance %s", s.ID)
+					level.Debug(i.logger).Log("msg", "Got no IP address", "instance", s.ID)
 					continue
 				}
 				md1, ok := md[0].(map[string]interface{})
 				if !ok {
-					i.logger.Warn("Invalid type for address, expected dict")
+					level.Warn(i.logger).Log("msg", "Invalid type for address, expected dict")
 					continue
 				}
 				addr, ok := md1["addr"].(string)
 				if !ok {
-					i.logger.Warn("Invalid type for address, expected string")
+					level.Warn(i.logger).Log("msg", "Invalid type for address, expected string")
 					continue
 				}
 				labels[openstackLabelPrivateIP] = model.LabelValue(addr)
@@ -191,7 +195,7 @@ func (i *InstanceDiscovery) refresh() (*config.TargetGroup, error) {
 			labels[openstackLabelInstanceName] = model.LabelValue(s.Name)
 			id, ok := s.Flavor["id"].(string)
 			if !ok {
-				i.logger.Warn("Invalid type for instance id, excepted string")
+				level.Warn(i.logger).Log("msg", "Invalid type for instance id, excepted string")
 				continue
 			}
 			labels[openstackLabelInstanceFlavor] = model.LabelValue(id)

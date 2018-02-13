@@ -14,15 +14,15 @@
 package kubernetes
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
 
-	"github.com/prometheus/prometheus/config"
-
-	"github.com/prometheus/common/log"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/common/model"
-	"golang.org/x/net/context"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
 )
@@ -42,6 +42,9 @@ type Endpoints struct {
 
 // NewEndpoints returns a new endpoints discovery.
 func NewEndpoints(l log.Logger, svc, eps, pod cache.SharedInformer) *Endpoints {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
 	ep := &Endpoints{
 		logger:         l,
 		endpointsInf:   eps,
@@ -55,10 +58,10 @@ func NewEndpoints(l log.Logger, svc, eps, pod cache.SharedInformer) *Endpoints {
 	return ep
 }
 
-// Run implements the retrieval.TargetProvider interface.
-func (e *Endpoints) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
+// Run implements the Discoverer interface.
+func (e *Endpoints) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	// Send full initial set of endpoint targets.
-	var initial []*config.TargetGroup
+	var initial []*targetgroup.Group
 
 	for _, o := range e.endpointsStore.List() {
 		tg := e.buildEndpoints(o.(*apiv1.Endpoints))
@@ -70,14 +73,14 @@ func (e *Endpoints) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 	case ch <- initial:
 	}
 	// Send target groups for pod updates.
-	send := func(tg *config.TargetGroup) {
+	send := func(tg *targetgroup.Group) {
 		if tg == nil {
 			return
 		}
-		e.logger.With("tg", fmt.Sprintf("%#v", tg)).Debugln("endpoints update")
+		level.Debug(e.logger).Log("msg", "endpoints update", "tg", fmt.Sprintf("%#v", tg))
 		select {
 		case <-ctx.Done():
-		case ch <- []*config.TargetGroup{tg}:
+		case ch <- []*targetgroup.Group{tg}:
 		}
 	}
 
@@ -87,7 +90,7 @@ func (e *Endpoints) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			eps, err := convertToEndpoints(o)
 			if err != nil {
-				e.logger.With("err", err).Errorln("converting to Endpoints object failed")
+				level.Error(e.logger).Log("msg", "converting to Endpoints object failed", "err", err)
 				return
 			}
 			send(e.buildEndpoints(eps))
@@ -97,7 +100,7 @@ func (e *Endpoints) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			eps, err := convertToEndpoints(o)
 			if err != nil {
-				e.logger.With("err", err).Errorln("converting to Endpoints object failed")
+				level.Error(e.logger).Log("msg", "converting to Endpoints object failed", "err", err)
 				return
 			}
 			send(e.buildEndpoints(eps))
@@ -107,17 +110,17 @@ func (e *Endpoints) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 
 			eps, err := convertToEndpoints(o)
 			if err != nil {
-				e.logger.With("err", err).Errorln("converting to Endpoints object failed")
+				level.Error(e.logger).Log("msg", "converting to Endpoints object failed", "err", err)
 				return
 			}
-			send(&config.TargetGroup{Source: endpointsSource(eps)})
+			send(&targetgroup.Group{Source: endpointsSource(eps)})
 		},
 	})
 
 	serviceUpdate := func(o interface{}) {
 		svc, err := convertToService(o)
 		if err != nil {
-			e.logger.With("err", err).Errorln("converting to Service object failed")
+			level.Error(e.logger).Log("msg", "converting to Service object failed", "err", err)
 			return
 		}
 
@@ -129,7 +132,7 @@ func (e *Endpoints) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 			send(e.buildEndpoints(obj.(*apiv1.Endpoints)))
 		}
 		if err != nil {
-			e.logger.With("err", err).Errorln("retrieving endpoints failed")
+			level.Error(e.logger).Log("msg", "retrieving endpoints failed", "err", err)
 		}
 	}
 	e.serviceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -181,12 +184,12 @@ const (
 	endpointPortProtocolLabel = metaLabelPrefix + "endpoint_port_protocol"
 )
 
-func (e *Endpoints) buildEndpoints(eps *apiv1.Endpoints) *config.TargetGroup {
+func (e *Endpoints) buildEndpoints(eps *apiv1.Endpoints) *targetgroup.Group {
 	if len(eps.Subsets) == 0 {
 		return nil
 	}
 
-	tg := &config.TargetGroup{
+	tg := &targetgroup.Group{
 		Source: endpointsSource(eps),
 	}
 	tg.Labels = model.LabelSet{
@@ -310,12 +313,12 @@ func (e *Endpoints) resolvePodRef(ref *apiv1.ObjectReference) *apiv1.Pod {
 		return nil
 	}
 	if err != nil {
-		e.logger.With("err", err).Errorln("resolving pod ref failed")
+		level.Error(e.logger).Log("msg", "resolving pod ref failed", "err", err)
 	}
 	return obj.(*apiv1.Pod)
 }
 
-func (e *Endpoints) addServiceLabels(ns, name string, tg *config.TargetGroup) {
+func (e *Endpoints) addServiceLabels(ns, name string, tg *targetgroup.Group) {
 	svc := &apiv1.Service{}
 	svc.Namespace = ns
 	svc.Name = name
@@ -325,7 +328,7 @@ func (e *Endpoints) addServiceLabels(ns, name string, tg *config.TargetGroup) {
 		return
 	}
 	if err != nil {
-		e.logger.With("err", err).Errorln("retrieving service failed")
+		level.Error(e.logger).Log("msg", "retrieving service failed", "err", err)
 	}
 	svc = obj.(*apiv1.Service)
 

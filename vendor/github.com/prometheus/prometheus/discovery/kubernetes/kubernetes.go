@@ -14,17 +14,20 @@
 package kubernetes
 
 import (
+	"context"
+	"fmt"
 	"io/ioutil"
 	"sync"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/prometheus/config"
-
-	"github.com/prometheus/common/log"
+	config_util "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
-	"golang.org/x/net/context"
-	"k8s.io/apimachinery/pkg/util/runtime"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
+	yaml_util "github.com/prometheus/prometheus/util/yaml"
+
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/pkg/api"
 	apiv1 "k8s.io/client-go/pkg/api/v1"
@@ -48,7 +51,95 @@ var (
 		},
 		[]string{"role", "event"},
 	)
+	// DefaultSDConfig is the default Kubernetes SD configuration
+	DefaultSDConfig = SDConfig{}
 )
+
+// Role is role of the service in Kubernetes.
+type Role string
+
+// The valid options for Role.
+const (
+	RoleNode     Role = "node"
+	RolePod      Role = "pod"
+	RoleService  Role = "service"
+	RoleEndpoint Role = "endpoints"
+	RoleIngress  Role = "ingress"
+)
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *Role) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	if err := unmarshal((*string)(c)); err != nil {
+		return err
+	}
+	switch *c {
+	case RoleNode, RolePod, RoleService, RoleEndpoint, RoleIngress:
+		return nil
+	default:
+		return fmt.Errorf("Unknown Kubernetes SD role %q", *c)
+	}
+}
+
+// SDConfig is the configuration for Kubernetes service discovery.
+type SDConfig struct {
+	APIServer          config_util.URL        `yaml:"api_server"`
+	Role               Role                   `yaml:"role"`
+	BasicAuth          *config_util.BasicAuth `yaml:"basic_auth,omitempty"`
+	BearerToken        config_util.Secret     `yaml:"bearer_token,omitempty"`
+	BearerTokenFile    string                 `yaml:"bearer_token_file,omitempty"`
+	TLSConfig          config_util.TLSConfig  `yaml:"tls_config,omitempty"`
+	NamespaceDiscovery NamespaceDiscovery     `yaml:"namespaces"`
+
+	// Catches all undefined fields and must be empty after parsing.
+	XXX map[string]interface{} `yaml:",inline"`
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	*c = SDConfig{}
+	type plain SDConfig
+	err := unmarshal((*plain)(c))
+	if err != nil {
+		return err
+	}
+	if err := yaml_util.CheckOverflow(c.XXX, "kubernetes_sd_config"); err != nil {
+		return err
+	}
+	if c.Role == "" {
+		return fmt.Errorf("role missing (one of: pod, service, endpoints, node)")
+	}
+	if len(c.BearerToken) > 0 && len(c.BearerTokenFile) > 0 {
+		return fmt.Errorf("at most one of bearer_token & bearer_token_file must be configured")
+	}
+	if c.BasicAuth != nil && (len(c.BearerToken) > 0 || len(c.BearerTokenFile) > 0) {
+		return fmt.Errorf("at most one of basic_auth, bearer_token & bearer_token_file must be configured")
+	}
+	if c.APIServer.URL == nil &&
+		(c.BasicAuth != nil || c.BearerToken != "" || c.BearerTokenFile != "" ||
+			c.TLSConfig.CAFile != "" || c.TLSConfig.CertFile != "" || c.TLSConfig.KeyFile != "") {
+		return fmt.Errorf("to use custom authentication please provide the 'api_server' URL explicitly")
+	}
+	return nil
+}
+
+// NamespaceDiscovery is the configuration for discovering
+// Kubernetes namespaces.
+type NamespaceDiscovery struct {
+	Names []string `yaml:"names"`
+	// Catches all undefined fields and must be empty after parsing.
+	XXX map[string]interface{} `yaml:",inline"`
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *NamespaceDiscovery) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	*c = NamespaceDiscovery{}
+	type plain NamespaceDiscovery
+	err := unmarshal((*plain)(c))
+	if err != nil {
+		return err
+	}
+	return yaml_util.CheckOverflow(c.XXX, "namespaces")
+}
 
 func init() {
 	prometheus.MustRegister(eventCount)
@@ -61,21 +152,13 @@ func init() {
 	}
 }
 
-// Discovery implements the TargetProvider interface for discovering
+// Discovery implements the Discoverer interface for discovering
 // targets from Kubernetes.
 type Discovery struct {
 	client             kubernetes.Interface
-	role               config.KubernetesRole
+	role               Role
 	logger             log.Logger
-	namespaceDiscovery *config.KubernetesNamespaceDiscovery
-}
-
-func init() {
-	runtime.ErrorHandlers = []func(error){
-		func(err error) {
-			log.With("component", "kube_client_runtime").Errorln(err)
-		},
-	}
+	namespaceDiscovery *NamespaceDiscovery
 }
 
 func (d *Discovery) getNamespaces() []string {
@@ -87,7 +170,10 @@ func (d *Discovery) getNamespaces() []string {
 }
 
 // New creates a new Kubernetes discovery for the given role.
-func New(l log.Logger, conf *config.KubernetesSDConfig) (*Discovery, error) {
+func New(l log.Logger, conf *SDConfig) (*Discovery, error) {
+	if l == nil {
+		l = log.NewNopLogger()
+	}
 	var (
 		kcfg *rest.Config
 		err  error
@@ -102,18 +188,19 @@ func New(l log.Logger, conf *config.KubernetesSDConfig) (*Discovery, error) {
 		// Because the handling of configuration parameters changes
 		// we should inform the user when their currently configured values
 		// will be ignored due to precedence of InClusterConfig
-		l.Info("Using pod service account via in-cluster config")
+		level.Info(l).Log("msg", "Using pod service account via in-cluster config")
+
 		if conf.TLSConfig.CAFile != "" {
-			l.Warn("Configured TLS CA file is ignored when using pod service account")
+			level.Warn(l).Log("msg", "Configured TLS CA file is ignored when using pod service account")
 		}
 		if conf.TLSConfig.CertFile != "" || conf.TLSConfig.KeyFile != "" {
-			l.Warn("Configured TLS client certificate is ignored when using pod service account")
+			level.Warn(l).Log("msg", "Configured TLS client certificate is ignored when using pod service account")
 		}
 		if conf.BearerToken != "" {
-			l.Warn("Configured auth token is ignored when using pod service account")
+			level.Warn(l).Log("msg", "Configured auth token is ignored when using pod service account")
 		}
 		if conf.BasicAuth != nil {
-			l.Warn("Configured basic authentication credentials are ignored when using pod service account")
+			level.Warn(l).Log("msg", "Configured basic authentication credentials are ignored when using pod service account")
 		}
 	} else {
 		kcfg = &rest.Config{
@@ -157,8 +244,8 @@ func New(l log.Logger, conf *config.KubernetesSDConfig) (*Discovery, error) {
 
 const resyncPeriod = 10 * time.Minute
 
-// Run implements the TargetProvider interface.
-func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
+// Run implements the Discoverer interface.
+func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	rclient := d.client.Core().RESTClient()
 	reclient := d.client.Extensions().RESTClient()
 
@@ -173,7 +260,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 			slw := cache.NewListWatchFromClient(rclient, "services", namespace, nil)
 			plw := cache.NewListWatchFromClient(rclient, "pods", namespace, nil)
 			eps := NewEndpoints(
-				d.logger.With("kubernetes_sd", "endpoint"),
+				log.With(d.logger, "role", "endpoint"),
 				cache.NewSharedInformer(slw, &apiv1.Service{}, resyncPeriod),
 				cache.NewSharedInformer(elw, &apiv1.Endpoints{}, resyncPeriod),
 				cache.NewSharedInformer(plw, &apiv1.Pod{}, resyncPeriod),
@@ -203,7 +290,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		for _, namespace := range namespaces {
 			plw := cache.NewListWatchFromClient(rclient, "pods", namespace, nil)
 			pod := NewPod(
-				d.logger.With("kubernetes_sd", "pod"),
+				log.With(d.logger, "role", "pod"),
 				cache.NewSharedInformer(plw, &apiv1.Pod{}, resyncPeriod),
 			)
 			go pod.informer.Run(ctx.Done())
@@ -223,7 +310,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		for _, namespace := range namespaces {
 			slw := cache.NewListWatchFromClient(rclient, "services", namespace, nil)
 			svc := NewService(
-				d.logger.With("kubernetes_sd", "service"),
+				log.With(d.logger, "role", "service"),
 				cache.NewSharedInformer(slw, &apiv1.Service{}, resyncPeriod),
 			)
 			go svc.informer.Run(ctx.Done())
@@ -243,7 +330,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		for _, namespace := range namespaces {
 			ilw := cache.NewListWatchFromClient(reclient, "ingresses", namespace, nil)
 			ingress := NewIngress(
-				d.logger.With("kubernetes_sd", "ingress"),
+				log.With(d.logger, "role", "ingress"),
 				cache.NewSharedInformer(ilw, &extensionsv1beta1.Ingress{}, resyncPeriod),
 			)
 			go ingress.informer.Run(ctx.Done())
@@ -261,7 +348,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 	case "node":
 		nlw := cache.NewListWatchFromClient(rclient, "nodes", api.NamespaceAll, nil)
 		node := NewNode(
-			d.logger.With("kubernetes_sd", "node"),
+			log.With(d.logger, "role", "node"),
 			cache.NewSharedInformer(nlw, &apiv1.Node{}, resyncPeriod),
 		)
 		go node.informer.Run(ctx.Done())
@@ -272,7 +359,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		node.Run(ctx, ch)
 
 	default:
-		d.logger.Errorf("unknown Kubernetes discovery kind %q", d.role)
+		level.Error(d.logger).Log("msg", "unknown Kubernetes discovery kind", "role", d.role)
 	}
 
 	<-ctx.Done()

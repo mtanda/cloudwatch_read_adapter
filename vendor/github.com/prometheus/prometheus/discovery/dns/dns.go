@@ -14,19 +14,20 @@
 package dns
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"golang.org/x/net/context"
-
-	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
+	yaml_util "github.com/prometheus/prometheus/util/yaml"
 )
 
 const (
@@ -51,7 +52,49 @@ var (
 			Name:      "sd_dns_lookup_failures_total",
 			Help:      "The number of DNS-SD lookup failures.",
 		})
+
+	// DefaultSDConfig is the default DNS SD configuration.
+	DefaultSDConfig = SDConfig{
+		RefreshInterval: model.Duration(30 * time.Second),
+		Type:            "SRV",
+	}
 )
+
+// SDConfig is the configuration for DNS based service discovery.
+type SDConfig struct {
+	Names           []string       `yaml:"names"`
+	RefreshInterval model.Duration `yaml:"refresh_interval,omitempty"`
+	Type            string         `yaml:"type"`
+	Port            int            `yaml:"port"` // Ignored for SRV records
+	// Catches all undefined fields and must be empty after parsing.
+	XXX map[string]interface{} `yaml:",inline"`
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	*c = DefaultSDConfig
+	type plain SDConfig
+	err := unmarshal((*plain)(c))
+	if err != nil {
+		return err
+	}
+	if err := yaml_util.CheckOverflow(c.XXX, "dns_sd_config"); err != nil {
+		return err
+	}
+	if len(c.Names) == 0 {
+		return fmt.Errorf("DNS-SD config must contain at least one SRV record name")
+	}
+	switch strings.ToUpper(c.Type) {
+	case "SRV":
+	case "A", "AAAA":
+		if c.Port == 0 {
+			return fmt.Errorf("a port is required in DNS-SD configs for all record types except SRV")
+		}
+	default:
+		return fmt.Errorf("invalid DNS-SD records type %s", c.Type)
+	}
+	return nil
+}
 
 func init() {
 	prometheus.MustRegister(dnsSDLookupFailuresCount)
@@ -59,7 +102,7 @@ func init() {
 }
 
 // Discovery periodically performs DNS-SD requests. It implements
-// the TargetProvider interface.
+// the Discoverer interface.
 type Discovery struct {
 	names []string
 
@@ -70,7 +113,11 @@ type Discovery struct {
 }
 
 // NewDiscovery returns a new Discovery which periodically refreshes its targets.
-func NewDiscovery(conf *config.DNSSDConfig, logger log.Logger) *Discovery {
+func NewDiscovery(conf SDConfig, logger log.Logger) *Discovery {
+	if logger == nil {
+		logger = log.NewNopLogger()
+	}
+
 	qtype := dns.TypeSRV
 	switch strings.ToUpper(conf.Type) {
 	case "A":
@@ -89,8 +136,8 @@ func NewDiscovery(conf *config.DNSSDConfig, logger log.Logger) *Discovery {
 	}
 }
 
-// Run implements the TargetProvider interface.
-func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
+// Run implements the Discoverer interface.
+func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	ticker := time.NewTicker(d.interval)
 	defer ticker.Stop()
 
@@ -107,14 +154,14 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 	}
 }
 
-func (d *Discovery) refreshAll(ctx context.Context, ch chan<- []*config.TargetGroup) {
+func (d *Discovery) refreshAll(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	var wg sync.WaitGroup
 
 	wg.Add(len(d.names))
 	for _, name := range d.names {
 		go func(n string) {
 			if err := d.refresh(ctx, n, ch); err != nil {
-				d.logger.Errorf("Error refreshing DNS targets: %s", err)
+				level.Error(d.logger).Log("msg", "Error refreshing DNS targets", "err", err)
 			}
 			wg.Done()
 		}(name)
@@ -123,7 +170,7 @@ func (d *Discovery) refreshAll(ctx context.Context, ch chan<- []*config.TargetGr
 	wg.Wait()
 }
 
-func (d *Discovery) refresh(ctx context.Context, name string, ch chan<- []*config.TargetGroup) error {
+func (d *Discovery) refresh(ctx context.Context, name string, ch chan<- []*targetgroup.Group) error {
 	response, err := lookupWithSearchPath(name, d.qtype, d.logger)
 	dnsSDLookupsCount.Inc()
 	if err != nil {
@@ -131,7 +178,7 @@ func (d *Discovery) refresh(ctx context.Context, name string, ch chan<- []*confi
 		return err
 	}
 
-	tg := &config.TargetGroup{}
+	tg := &targetgroup.Group{}
 	hostPort := func(a string, p int) model.LabelValue {
 		return model.LabelValue(net.JoinHostPort(a, fmt.Sprintf("%d", p)))
 	}
@@ -149,7 +196,7 @@ func (d *Discovery) refresh(ctx context.Context, name string, ch chan<- []*confi
 		case *dns.AAAA:
 			target = hostPort(addr.AAAA.String(), d.port)
 		default:
-			d.logger.Warnf("%q is not a valid SRV record", record)
+			level.Warn(d.logger).Log("msg", "Invalid SRV record", "record", record)
 			continue
 		}
 		tg.Targets = append(tg.Targets, model.LabelSet{
@@ -162,7 +209,7 @@ func (d *Discovery) refresh(ctx context.Context, name string, ch chan<- []*confi
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case ch <- []*config.TargetGroup{tg}:
+	case ch <- []*targetgroup.Group{tg}:
 	}
 
 	return nil
@@ -250,11 +297,7 @@ func lookupFromAnyServer(name string, qtype uint16, conf *dns.ClientConfig, logg
 		servAddr := net.JoinHostPort(server, conf.Port)
 		msg, err := askServerForName(name, qtype, client, servAddr, false)
 		if err != nil {
-			logger.
-				With("server", server).
-				With("name", name).
-				With("reason", err).
-				Warn("DNS resolution failed.")
+			level.Warn(logger).Log("msg", "DNS resolution failed", "server", server, "name", name, "err", err)
 			continue
 		}
 

@@ -1,166 +1,211 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"io/ioutil"
-	"math"
 	"net/http"
 	_ "net/http/pprof"
-	"sort"
-	"strconv"
-	"strings"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
-
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
-	"github.com/prometheus/common/log"
-
-	"github.com/prometheus/prometheus/storage/remote"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/promlog"
+	"github.com/prometheus/prometheus/prompb"
+	"golang.org/x/sync/errgroup"
 )
 
 type config struct {
-	listenAddr string
+	listenAddr  string
+	configFile  string
+	storagePath string
 }
 
-type byTimestamp []*cloudwatch.Datapoint
+func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.Logger) []*prompb.TimeSeries {
+	result := []*prompb.TimeSeries{}
 
-func (t byTimestamp) Len() int           { return len(t) }
-func (t byTimestamp) Swap(i, j int)      { t[i], t[j] = t[j], t[i] }
-func (t byTimestamp) Less(i, j int) bool { return t[i].Timestamp.Before(*t[j].Timestamp) }
+	namespace := ""
+	for _, m := range q.Matchers {
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Namespace" {
+			namespace = m.Value
+		}
+	}
+	if namespace == "" {
+		level.Debug(logger).Log("msg", "namespace is required")
+		return result
+	}
 
-func runQuery(q *remote.Query) []*remote.TimeSeries {
-	result := []*remote.TimeSeries{}
+	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
+	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+	now := time.Now().UTC()
+	if endTime.After(now) {
+		q.EndTimestampMs = now.Unix() * 1000
+		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+	}
+
+	// get archived result
+	if archiver.isArchived(startTime, []string{namespace}) {
+		level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
+		aq := *q
+		aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
+		archivedResult, err := archiver.query(&aq)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			return result
+		}
+		result = append(result, archivedResult...)
+		q.StartTimestampMs = aq.EndTimestampMs
+		level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
+	}
 
 	// parse query
 	var region string
-	var query cloudwatch.GetMetricStatisticsInput
-	for _, m := range q.Matchers {
-		if m.Type != remote.MatchType_EQUAL {
-			continue // only support equal matcher
-		}
-
-		switch strings.ToLower(m.Name) {
-		case "region":
-			region = m.Value
-		case "namespace":
-			query.Namespace = aws.String(m.Value)
-		case "metricname":
-			query.MetricName = aws.String(m.Value)
-		case "statistics":
-			query.Statistics = []*string{aws.String(m.Value)}
-		case "extendedstatistics":
-			query.ExtendedStatistics = []*string{aws.String(m.Value)}
-		case "period":
-			period, err := strconv.Atoi(m.Value)
+	var queries []*cloudwatch.GetMetricStatisticsInput
+	var err error
+	if q.StartTimestampMs < q.EndTimestampMs {
+		if indexer.isExpired(endTime, []string{namespace}) {
+			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
+			region, queries, err = getQueryWithoutIndex(q, indexer)
 			if err != nil {
-				log.Errorf("Invalid period = %s", m.Value)
+				level.Error(logger).Log("err", err)
 				return result
 			}
-			query.Period = aws.Int64(int64(period))
-		default:
-			query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
-				Name:  aws.String(m.Name),
-				Value: aws.String(m.Value),
-			})
-		}
-	}
-
-	periodUnit := 60
-	if *query.Namespace == "AWS/EC2" {
-		periodUnit = 300
-	}
-
-	rangeAdjust := int64(0)
-	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
-		rangeAdjust = int64(1)
-	}
-	query.StartTime = aws.Time(time.Unix((q.StartTimestampMs/1000/int64(periodUnit)+rangeAdjust)*int64(periodUnit), 0))
-	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000/int64(periodUnit)*int64(periodUnit), 0))
-
-	// auto calibrate period
-	period := 60
-	timeDay := 24 * time.Hour
-	if query.Period == nil {
-		now := time.Now()
-		timeRangeToNow := now.Sub(*query.StartTime)
-		if timeRangeToNow < timeDay*15 { // until 15 days ago
-			if *query.Namespace == "AWS/EC2" {
-				period = 300
-			} else {
-				period = 60
+		} else {
+			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
+			region, queries, err = getQueryWithIndex(q, indexer)
+			if err != nil {
+				level.Error(logger).Log("err", err)
+				return result
 			}
-		} else if timeRangeToNow <= (timeDay * 63) { // until 63 days ago
-			period = 60 * 5
-		} else if timeRangeToNow <= (timeDay * 455) { // until 455 days ago
-			period = 60 * 60
-		} else { // over 455 days, should return error, but try to long period
-			period = 60 * 60
 		}
 	}
-	queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
-	if queryTimeRange/float64(period) >= 1440 {
-		period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
+
+	if len(queries) > 100 {
+		level.Warn(logger).Log("msg", "Too many concurrent queries")
+		return result
 	}
-	query.Period = aws.Int64(int64(period))
 
 	cfg := &aws.Config{Region: aws.String(region)}
 	sess, err := session.NewSession(cfg)
 	if err != nil {
-		log.Errorf("Failed to initialize session")
+		level.Error(logger).Log("err", err)
 		return result
 	}
-
 	svc := cloudwatch.New(sess, cfg)
-	resp, err := svc.GetMetricStatistics(&query)
-	if err != nil {
-		log.Errorf("Failed to get metrics: query = %+v", query)
-		return result
-	}
 
-	// make time series
-	ts := &remote.TimeSeries{}
-	for _, d := range query.Dimensions {
-		ts.Labels = append(ts.Labels, &remote.LabelPair{Name: *d.Name, Value: *d.Value})
-	}
-	ts.Labels = append(ts.Labels, &remote.LabelPair{Name: "region", Value: region})
-	ts.Labels = append(ts.Labels, &remote.LabelPair{Name: "namespace", Value: *query.Namespace})
-	ts.Labels = append(ts.Labels, &remote.LabelPair{Name: "statistics", Value: *query.Statistics[0]})
-	//ts.Labels = append(ts.Labels, &remote.LabelPair{Name: "extendedStatistics", Value: *query.ExtendedStatistics[0]})
-	ts.Labels = append(ts.Labels, &remote.LabelPair{Name: "period", Value: strconv.FormatInt(*query.Period, 10)})
-
-	sort.Sort(byTimestamp(resp.Datapoints))
-	for _, dp := range resp.Datapoints {
-		value := 0.0
-		// TODO: support extended statistics
-		switch *query.Statistics[0] {
-		case "Average":
-			value = *dp.Average
-		case "Maximum":
-			value = *dp.Maximum
-		case "Minimum":
-			value = *dp.Minimum
-		case "Sum":
-			value = *dp.Sum
-		case "SampleCount":
-			value = *dp.SampleCount
+	for _, query := range queries {
+		cwResult, err := queryCloudWatch(svc, region, query, q)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			return result
 		}
-		ts.Samples = append(ts.Samples, &remote.Sample{Value: value, TimestampMs: dp.Timestamp.Unix() * 1000})
+		result = append(result, cwResult...)
 	}
-	result = append(result, ts)
-	log.Infof("Returned %d time series.", len(result))
+
+	level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
 
 	return result
 }
 
+func GetDefaultRegion() (string, error) {
+	var region string
+
+	metadata := ec2metadata.New(session.New(), &aws.Config{
+		MaxRetries: aws.Int(0),
+	})
+	if metadata.Available() {
+		var err error
+		region, err = metadata.Region()
+		if err != nil {
+			return "", err
+		}
+	} else {
+		region = os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "us-east-1"
+		}
+	}
+
+	return region, nil
+}
+
 func main() {
 	var cfg config
-	flag.StringVar(&cfg.listenAddr, "web.listen-address", ":9201", "Address to listen on for web endpoints.")
+
+	flag.StringVar(&cfg.listenAddr, "web.listen-address", ":9415", "Address to listen on for web endpoints.")
+	flag.StringVar(&cfg.configFile, "config.file", "./cloudwatch_read_adapter.yml", "Configuration file path.")
+	flag.StringVar(&cfg.storagePath, "storage.tsdb.path", "./data", "Base path for metrics storage.")
 	flag.Parse()
 
+	logLevel := promlog.AllowedLevel{}
+	logLevel.Set("info")
+	logger := promlog.New(logLevel)
+
+	readCfg, err := LoadConfig(cfg.configFile)
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		panic(err)
+	}
+	if len(readCfg.Targets) == 0 {
+		level.Info(logger).Log("msg", "no targets")
+		os.Exit(0)
+	}
+
+	// set default region
+	region, err := GetDefaultRegion()
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		panic(err)
+	}
+	if len(readCfg.Targets[0].Index.Region) == 0 {
+		readCfg.Targets[0].Index.Region = append(readCfg.Targets[0].Index.Region, region)
+	}
+	if len(readCfg.Targets[0].Archive.Region) == 0 {
+		readCfg.Targets[0].Archive.Region = append(readCfg.Targets[0].Archive.Region, region)
+	}
+
+	for _, n := range readCfg.Targets[0].Archive.Namespace {
+		found := false
+		for _, nn := range readCfg.Targets[0].Index.Namespace {
+			if n == nn {
+				found = true
+			}
+		}
+		if !found {
+			err := "archive target namespace should be indexed"
+			level.Error(logger).Log("err", err)
+			panic(err)
+		}
+	}
+
+	pctx, cancel := context.WithCancel(context.Background())
+	eg, ctx := errgroup.WithContext(pctx)
+	indexer, err := NewIndexer(readCfg.Targets[0].Index, cfg.storagePath, log.With(logger, "component", "indexer"))
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		panic(err)
+	}
+	indexer.start(eg, ctx)
+	archiver, err := NewArchiver(readCfg.Targets[0].Archive, cfg.storagePath, indexer, log.With(logger, "component", "archiver"))
+	if err != nil {
+		level.Error(logger).Log("err", err)
+		panic(err)
+	}
+	archiver.start(eg, ctx)
+
+	srv := &http.Server{Addr: cfg.listenAddr}
+	http.Handle("/metrics", prometheus.Handler())
 	http.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
 		compressed, err := ioutil.ReadAll(r.Body)
 		if err != nil {
@@ -174,7 +219,7 @@ func main() {
 			return
 		}
 
-		var req remote.ReadRequest
+		var req prompb.ReadRequest
 		if err := proto.Unmarshal(reqBuf, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -185,9 +230,9 @@ func main() {
 			return
 		}
 
-		resp := remote.ReadResponse{
-			Results: []*remote.QueryResult{
-				{Timeseries: runQuery(req.Queries[0])},
+		resp := prompb.ReadResponse{
+			Results: []*prompb.QueryResult{
+				{Timeseries: runQuery(indexer, archiver, req.Queries[0], logger)},
 			},
 		}
 		data, err := proto.Marshal(&resp)
@@ -203,5 +248,31 @@ func main() {
 		}
 	})
 
-	http.ListenAndServe(cfg.listenAddr, nil)
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
+	defer func() {
+		signal.Stop(term)
+		cancel()
+	}()
+	go func() {
+		select {
+		case <-term:
+			level.Warn(logger).Log("msg", "Received SIGTERM, exiting gracefully...")
+			cancel()
+			if err := eg.Wait(); err != nil {
+				level.Error(logger).Log("err", err)
+			}
+
+			ctxHttp, _ := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := srv.Shutdown(ctxHttp); err != nil {
+				level.Error(logger).Log("err", err)
+			}
+		case <-pctx.Done():
+		}
+	}()
+
+	level.Info(logger).Log("msg", "Listening on "+cfg.listenAddr)
+	if err := srv.ListenAndServe(); err != nil {
+		level.Error(logger).Log("err", err)
+	}
 }

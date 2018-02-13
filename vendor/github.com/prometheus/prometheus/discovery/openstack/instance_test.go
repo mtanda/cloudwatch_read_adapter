@@ -20,9 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
 )
 
 type OpenstackSDInstanceTestSuite struct {
@@ -50,7 +48,7 @@ func TestOpenstackSDInstanceSuite(t *testing.T) {
 }
 
 func (s *OpenstackSDInstanceTestSuite) openstackAuthSuccess() (Discovery, error) {
-	conf := config.OpenstackSDConfig{
+	conf := SDConfig{
 		IdentityEndpoint: s.Mock.Endpoint(),
 		Password:         "test",
 		Username:         "test",
@@ -58,7 +56,7 @@ func (s *OpenstackSDInstanceTestSuite) openstackAuthSuccess() (Discovery, error)
 		Region:           "RegionOne",
 		Role:             "instance",
 	}
-	return NewDiscovery(&conf, log.Base())
+	return NewDiscovery(&conf, nil)
 }
 
 func (s *OpenstackSDInstanceTestSuite) TestOpenstackSDInstanceRefresh() {

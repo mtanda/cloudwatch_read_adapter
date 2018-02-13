@@ -20,24 +20,20 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 
-	"github.com/prometheus/prometheus/config"
+	"github.com/mwitkow/go-conntrack"
+	config_util "github.com/prometheus/common/config"
 )
 
 // NewClient returns a http.Client using the specified http.RoundTripper.
-func NewClient(rt http.RoundTripper) *http.Client {
+func newClient(rt http.RoundTripper) *http.Client {
 	return &http.Client{Transport: rt}
 }
 
 // NewClientFromConfig returns a new HTTP client configured for the
-// given config.HTTPClientConfig.
-func NewClientFromConfig(cfg config.HTTPClientConfig) (*http.Client, error) {
-	return NewClientFromConfigAndOptions(cfg, true)
-}
-
-// NewClientFromConfigAndOptions returns a new HTTP client configured for the
-// given config.HTTPClientConfig, optionally disabling HTTP keepalive.
-func NewClientFromConfigAndOptions(cfg config.HTTPClientConfig, disableKeepAlives bool) (*http.Client, error) {
+// given config.HTTPClientConfig. The name is used as go-conntrack metric label.
+func NewClientFromConfig(cfg config_util.HTTPClientConfig, name string) (*http.Client, error) {
 	tlsConfig, err := NewTLSConfig(cfg.TLSConfig)
 	if err != nil {
 		return nil, err
@@ -45,9 +41,19 @@ func NewClientFromConfigAndOptions(cfg config.HTTPClientConfig, disableKeepAlive
 	// The only timeout we care about is the configured scrape timeout.
 	// It is applied on request. So we leave out any timings here.
 	var rt http.RoundTripper = &http.Transport{
-		Proxy:             http.ProxyURL(cfg.ProxyURL.URL),
-		DisableKeepAlives: disableKeepAlives,
-		TLSClientConfig:   tlsConfig,
+		Proxy:               http.ProxyURL(cfg.ProxyURL.URL),
+		MaxIdleConns:        20000,
+		MaxIdleConnsPerHost: 1000, // see https://github.com/golang/go/issues/13801
+		DisableKeepAlives:   false,
+		TLSClientConfig:     tlsConfig,
+		DisableCompression:  true,
+		// 5 minutes is typically above the maximum sane scrape interval. So we can
+		// use keepalive for all configurations.
+		IdleConnTimeout: 5 * time.Minute,
+		DialContext: conntrack.NewDialContextFunc(
+			conntrack.DialWithTracing(),
+			conntrack.DialWithName(name),
+		),
 	}
 
 	// If a bearer token is provided, create a round tripper that will set the
@@ -70,7 +76,7 @@ func NewClientFromConfigAndOptions(cfg config.HTTPClientConfig, disableKeepAlive
 	}
 
 	// Return a new client with the configured round tripper.
-	return NewClient(rt), nil
+	return newClient(rt), nil
 }
 
 type bearerAuthRoundTripper struct {
@@ -128,8 +134,8 @@ func cloneRequest(r *http.Request) *http.Request {
 	return r2
 }
 
-// NewTLSConfig creates a new tls.Config from the given config.TLSConfig.
-func NewTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
+// NewTLSConfig creates a new tls.Config from the given config_util.TLSConfig.
+func NewTLSConfig(cfg config_util.TLSConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{InsecureSkipVerify: cfg.InsecureSkipVerify}
 
 	// If a CA cert is provided then let's read it in so we can validate the

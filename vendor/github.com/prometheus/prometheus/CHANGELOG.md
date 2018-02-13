@@ -1,3 +1,54 @@
+## 2.1.0 / 2018-1-19
+
+* [FEATURE] New Service Discovery UI showing labels before and after relabelling.
+* [FEATURE] New Admin APIs added to v1 to delete, snapshot and remove tombstones.
+* [ENHANCEMENT] The graph UI autcomplete now includes your previous queries.
+* [ENHANCEMENT] Federation is now much faster for large numbers of series.
+* [ENHANCEMENT] Added new metrics to measure rule timings.
+* [ENHANCEMENT] Rule evaluation times added to the rules UI.
+* [ENHANCEMENT] Added metrics to measure modified time of file SD files.
+* [ENHANCEMENT] Kubernetes SD now includes POD UID in discovery metadata.
+* [ENHANCEMENT] The Query APIs now return optional stats on query execution times.
+* [ENHANCEMENT] The index now no longer has the 4GiB size limit and is also smaller.
+* [BUGFIX] Remote read `read_recent` option is now false by default.
+* [BUGFIX] Pass the right configuration to each Alertmanager (AM) when using multiple AM configs.
+* [BUGFIX] Fix not-matchers not selecting series with labels unset.
+* [BUGFIX] tsdb: Fix occasional panic in head block.
+* [BUGFIX] tsdb: Close files before deletion to fix retention issues on Windows and NFS.
+* [BUGFIX] tsdb: Cleanup and do not retry failing compactions.
+* [BUGFIX] tsdb: Close WAL while shutting down.
+
+
+## 2.0.0 / 2017-11-08
+
+This release includes a completely rewritten storage, huge performance
+improvements, but also many backwards incompatible changes. For more
+information, read the announcement blog post and migration guide.
+
+https://prometheus.io/blog/2017/11/08/announcing-prometheus-2-0/
+https://prometheus.io/docs/prometheus/2.0/migration/
+
+* [CHANGE] Completely rewritten storage layer, with WAL. This is not backwards compatible with 1.x storage, and many flags have changed/disappeared.
+* [CHANGE] New staleness behavior. Series now marked stale after target scrapes no longer return them, and soon after targets disappear from service discovery.
+* [CHANGE] Rules files use YAML syntax now. Conversion tool added to promtool.
+* [CHANGE] Removed `count_scalar`, `drop_common_labels` functions and `keep_common` modifier from PromQL.
+* [CHANGE] Rewritten exposition format parser with much higher performance. The Protobuf exposition format is no longer supported.
+* [CHANGE] Example console templates updated for new storage and metrics names. Examples other than node exporter and Prometheus removed.
+* [CHANGE] Admin and lifecycle APIs now disabled by default, can be reenabled via flags
+* [CHANGE] Flags switched to using Kingpin, all flags are now --flagname rather than -flagname.
+* [FEATURE/CHANGE] Remote read can be configured to not read data which is available locally. This is enabled by default.
+* [FEATURE] Rules can be grouped now. Rules within a rule group are executed sequentially.
+* [FEATURE] Added experimental GRPC apis
+* [FEATURE] Add timestamp() function to PromQL.
+* [ENHANCEMENT] Remove remote read from the query path if no remote storage is configured.
+* [ENHANCEMENT] Bump Consul HTTP client timeout to not match the Consul SD watch timeout.
+* [ENHANCEMENT] Go-conntrack added to provide HTTP connection metrics.
+* [BUGFIX] Fix connection leak in Consul SD.
+
+## 1.8.2 / 2017-11-04
+
+* [BUGFIX] EC2 service discovery: Do not crash if tags are empty.
+
 ## 1.8.1 / 2017-10-19
 
 * [BUGFIX] Correctly handle external labels on remote read endpoint

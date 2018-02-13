@@ -14,9 +14,7 @@
 package web
 
 import (
-	"bufio"
 	"bytes"
-	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
@@ -78,6 +76,18 @@ test_metric2{foo="boo",instance="i"} 1 6000000
 test_metric_without_labels{instance=""} 1001 6000000
 `,
 	},
+	"test_stale_metric": {
+		params: "match[]=test_metric_stale",
+		code:   200,
+		body:   ``,
+	},
+	"test_old_metric": {
+		params: "match[]=test_metric_old",
+		code:   200,
+		body: `# TYPE test_metric_old untyped
+test_metric_old{instance=""} 981 5880000
+`,
+	},
 	"{foo='boo'}": {
 		params: "match[]={foo='boo'}",
 		code:   200,
@@ -105,6 +115,8 @@ test_metric1{foo="bar",instance="i"} 10000 6000000
 test_metric1{foo="boo",instance="i"} 1 6000000
 # TYPE test_metric2 untyped
 test_metric2{foo="boo",instance="i"} 1 6000000
+# TYPE test_metric_old untyped
+test_metric_old{instance=""} 981 5880000
 # TYPE test_metric_without_labels untyped
 test_metric_without_labels{instance=""} 1001 6000000
 `,
@@ -112,7 +124,9 @@ test_metric_without_labels{instance=""} 1001 6000000
 	"empty label value matches everything that doesn't have that label": {
 		params: "match[]={foo='',__name__=~'.%2b'}",
 		code:   200,
-		body: `# TYPE test_metric_without_labels untyped
+		body: `# TYPE test_metric_old untyped
+test_metric_old{instance=""} 981 5880000
+# TYPE test_metric_without_labels untyped
 test_metric_without_labels{instance=""} 1001 6000000
 `,
 	},
@@ -124,6 +138,8 @@ test_metric1{foo="bar",instance="i"} 10000 6000000
 test_metric1{foo="boo",instance="i"} 1 6000000
 # TYPE test_metric2 untyped
 test_metric2{foo="boo",instance="i"} 1 6000000
+# TYPE test_metric_old untyped
+test_metric_old{instance=""} 981 5880000
 # TYPE test_metric_without_labels untyped
 test_metric_without_labels{instance=""} 1001 6000000
 `,
@@ -137,6 +153,8 @@ test_metric1{foo="bar",instance="i",zone="ie"} 10000 6000000
 test_metric1{foo="boo",instance="i",zone="ie"} 1 6000000
 # TYPE test_metric2 untyped
 test_metric2{foo="boo",instance="i",zone="ie"} 1 6000000
+# TYPE test_metric_old untyped
+test_metric_old{foo="baz",instance="",zone="ie"} 981 5880000
 # TYPE test_metric_without_labels untyped
 test_metric_without_labels{foo="baz",instance="",zone="ie"} 1001 6000000
 `,
@@ -152,6 +170,8 @@ test_metric1{foo="bar",instance="i"} 10000 6000000
 test_metric1{foo="boo",instance="i"} 1 6000000
 # TYPE test_metric2 untyped
 test_metric2{foo="boo",instance="i"} 1 6000000
+# TYPE test_metric_old untyped
+test_metric_old{instance="baz"} 981 5880000
 # TYPE test_metric_without_labels untyped
 test_metric_without_labels{instance="baz"} 1001 6000000
 `,
@@ -165,6 +185,8 @@ func TestFederation(t *testing.T) {
 			test_metric1{foo="boo",instance="i"}    1+0x100
 			test_metric2{foo="boo",instance="i"}    1+0x100
 			test_metric_without_labels 1+10x100
+			test_metric_stale                       1+10x99 stale
+			test_metric_old                         1+10x98
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -186,29 +208,14 @@ func TestFederation(t *testing.T) {
 
 	for name, scenario := range scenarios {
 		h.config.GlobalConfig.ExternalLabels = scenario.externalLabels
-		req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(
-			"GET http://example.org/federate?" + scenario.params + " HTTP/1.0\r\n\r\n",
-		)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		// HTTP/1.0 was used above to avoid needing a Host field. Change it to 1.1 here.
-		req.Proto = "HTTP/1.1"
-		req.ProtoMinor = 1
-		req.Close = false
-		// 192.0.2.0/24 is "TEST-NET" in RFC 5737 for use solely in
-		// documentation and example source code and should not be
-		// used publicly.
-		req.RemoteAddr = "192.0.2.1:1234"
-		// TODO(beorn7): Once we are completely on Go1.7, replace the lines above by the following:
-		// req := httptest.NewRequest("GET", "http://example.org/federate?"+scenario.params, nil)
+		req := httptest.NewRequest("GET", "http://example.org/federate?"+scenario.params, nil)
 		res := httptest.NewRecorder()
 		h.federation(res, req)
 		if got, want := res.Code, scenario.code; got != want {
 			t.Errorf("Scenario %q: got code %d, want %d", name, got, want)
 		}
 		if got, want := normalizeBody(res.Body), scenario.body; got != want {
-			t.Errorf("Scenario %q: got body %s, want %s", name, got, want)
+			t.Errorf("Scenario %q: got body\n%s\n, want\n%s\n", name, got, want)
 		}
 	}
 }

@@ -1,15 +1,17 @@
-[[constraint]]
-  name = "github.com/gogo/protobuf"
-  version = "0.5.0"
+required = ["github.com/grpc-ecosystem/grpc-gateway/runtime"]
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/golang/snappy"
+  name = "github.com/grpc-ecosystem/grpc-gateway"
+  version = "=v1.3"
 
 [[constraint]]
   branch = "master"
   name = "github.com/prometheus/common"
 
 [[constraint]]
+  name = "github.com/prometheus/tsdb"
+  revision = "44dd5e1202b7598d50c69ce3617ca6ae6503cf52"
+
+[[constraint]]
   name = "github.com/prometheus/prometheus"
-  version = "1.8.1"
+  version = "2.1.0"

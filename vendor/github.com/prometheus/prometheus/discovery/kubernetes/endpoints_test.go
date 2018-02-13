@@ -16,10 +16,10 @@ package kubernetes
 import (
 	"testing"
 
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
 )
@@ -36,7 +36,7 @@ func makeTestEndpointsDiscovery() (*Endpoints, *fakeInformer, *fakeInformer, *fa
 	svc := newFakeServiceInformer()
 	eps := newFakeEndpointsInformer()
 	pod := newFakePodInformer()
-	return NewEndpoints(log.Base(), svc, eps, pod), svc, eps, pod
+	return NewEndpoints(nil, svc, eps, pod), svc, eps, pod
 }
 
 func makeEndpoints() *v1.Endpoints {
@@ -89,7 +89,7 @@ func TestEndpointsDiscoveryInitial(t *testing.T) {
 
 	k8sDiscoveryTest{
 		discovery: n,
-		expectedInitial: []*config.TargetGroup{
+		expectedInitial: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -127,6 +127,7 @@ func TestEndpointsDiscoveryAdd(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "testpod",
 			Namespace: "default",
+			UID:       types.UID("deadbeef"),
 		},
 		Spec: v1.PodSpec{
 			NodeName: "testnode",
@@ -194,7 +195,7 @@ func TestEndpointsDiscoveryAdd(t *testing.T) {
 				)
 			}()
 		},
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -211,6 +212,7 @@ func TestEndpointsDiscoveryAdd(t *testing.T) {
 						"__meta_kubernetes_pod_container_port_name":     "mainport",
 						"__meta_kubernetes_pod_container_port_number":   "9000",
 						"__meta_kubernetes_pod_container_port_protocol": "TCP",
+						"__meta_kubernetes_pod_uid":                     "deadbeef",
 					},
 					{
 						"__address__":                                   "1.2.3.4:9001",
@@ -223,6 +225,7 @@ func TestEndpointsDiscoveryAdd(t *testing.T) {
 						"__meta_kubernetes_pod_container_port_name":     "sideport",
 						"__meta_kubernetes_pod_container_port_number":   "9001",
 						"__meta_kubernetes_pod_container_port_protocol": "TCP",
+						"__meta_kubernetes_pod_uid":                     "deadbeef",
 					},
 				},
 				Labels: model.LabelSet{
@@ -242,7 +245,7 @@ func TestEndpointsDiscoveryDelete(t *testing.T) {
 	k8sDiscoveryTest{
 		discovery:  n,
 		afterStart: func() { go func() { eps.Delete(makeEndpoints()) }() },
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Source: "endpoints/default/testendpoints",
 			},
@@ -257,7 +260,7 @@ func TestEndpointsDiscoveryDeleteUnknownCacheState(t *testing.T) {
 	k8sDiscoveryTest{
 		discovery:  n,
 		afterStart: func() { go func() { eps.Delete(cache.DeletedFinalStateUnknown{Obj: makeEndpoints()}) }() },
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Source: "endpoints/default/testendpoints",
 			},
@@ -311,7 +314,7 @@ func TestEndpointsDiscoveryUpdate(t *testing.T) {
 				})
 			}()
 		},
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{

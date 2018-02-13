@@ -17,9 +17,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
@@ -35,7 +34,7 @@ func newFakeServiceInformer() *fakeInformer {
 
 func makeTestServiceDiscovery() (*Service, *fakeInformer) {
 	i := newFakeServiceInformer()
-	return NewService(log.Base(), i), i
+	return NewService(nil, i), i
 }
 
 func makeMultiPortService() *v1.Service {
@@ -91,7 +90,7 @@ func TestServiceDiscoveryInitial(t *testing.T) {
 
 	k8sDiscoveryTest{
 		discovery: n,
-		expectedInitial: []*config.TargetGroup{
+		expectedInitial: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -123,7 +122,7 @@ func TestServiceDiscoveryAdd(t *testing.T) {
 	k8sDiscoveryTest{
 		discovery:  n,
 		afterStart: func() { go func() { i.Add(makeService()) }() },
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -149,7 +148,7 @@ func TestServiceDiscoveryDelete(t *testing.T) {
 	k8sDiscoveryTest{
 		discovery:  n,
 		afterStart: func() { go func() { i.Delete(makeService()) }() },
-		expectedInitial: []*config.TargetGroup{
+		expectedInitial: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -165,7 +164,7 @@ func TestServiceDiscoveryDelete(t *testing.T) {
 				Source: "svc/default/testservice",
 			},
 		},
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Source: "svc/default/testservice",
 			},
@@ -180,7 +179,7 @@ func TestServiceDiscoveryDeleteUnknownCacheState(t *testing.T) {
 	k8sDiscoveryTest{
 		discovery:  n,
 		afterStart: func() { go func() { i.Delete(cache.DeletedFinalStateUnknown{Obj: makeService()}) }() },
-		expectedInitial: []*config.TargetGroup{
+		expectedInitial: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -196,7 +195,7 @@ func TestServiceDiscoveryDeleteUnknownCacheState(t *testing.T) {
 				Source: "svc/default/testservice",
 			},
 		},
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Source: "svc/default/testservice",
 			},
@@ -211,7 +210,7 @@ func TestServiceDiscoveryUpdate(t *testing.T) {
 	k8sDiscoveryTest{
 		discovery:  n,
 		afterStart: func() { go func() { i.Update(makeMultiPortService()) }() },
-		expectedInitial: []*config.TargetGroup{
+		expectedInitial: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{
@@ -227,7 +226,7 @@ func TestServiceDiscoveryUpdate(t *testing.T) {
 				Source: "svc/default/testservice",
 			},
 		},
-		expectedRes: []*config.TargetGroup{
+		expectedRes: []*targetgroup.Group{
 			{
 				Targets: []model.LabelSet{
 					{

@@ -14,6 +14,7 @@
 package consul
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -21,14 +22,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	consul "github.com/hashicorp/consul/api"
+	"github.com/mwitkow/go-conntrack"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/log"
+	config_util "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/prometheus/prometheus/util/httputil"
 	"github.com/prometheus/prometheus/util/strutil"
-	"golang.org/x/net/context"
+	yaml_util "github.com/prometheus/prometheus/util/yaml"
 )
 
 const (
@@ -73,7 +77,48 @@ var (
 		},
 		[]string{"endpoint", "call"},
 	)
+
+	// DefaultSDConfig is the default Consul SD configuration.
+	DefaultSDConfig = SDConfig{
+		TagSeparator: ",",
+		Scheme:       "http",
+	}
 )
+
+// SDConfig is the configuration for Consul service discovery.
+type SDConfig struct {
+	Server       string             `yaml:"server"`
+	Token        config_util.Secret `yaml:"token,omitempty"`
+	Datacenter   string             `yaml:"datacenter,omitempty"`
+	TagSeparator string             `yaml:"tag_separator,omitempty"`
+	Scheme       string             `yaml:"scheme,omitempty"`
+	Username     string             `yaml:"username,omitempty"`
+	Password     config_util.Secret `yaml:"password,omitempty"`
+	// The list of services for which targets are discovered.
+	// Defaults to all services if empty.
+	Services []string `yaml:"services"`
+
+	TLSConfig config_util.TLSConfig `yaml:"tls_config,omitempty"`
+	// Catches all undefined fields and must be empty after parsing.
+	XXX map[string]interface{} `yaml:",inline"`
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	*c = DefaultSDConfig
+	type plain SDConfig
+	err := unmarshal((*plain)(c))
+	if err != nil {
+		return err
+	}
+	if err := yaml_util.CheckOverflow(c.XXX, "consul_sd_config"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.Server) == "" {
+		return fmt.Errorf("Consul SD configuration requires a server address")
+	}
+	return nil
+}
 
 func init() {
 	prometheus.MustRegister(rpcFailuresCount)
@@ -96,13 +141,26 @@ type Discovery struct {
 }
 
 // NewDiscovery returns a new Discovery for the given config.
-func NewDiscovery(conf *config.ConsulSDConfig, logger log.Logger) (*Discovery, error) {
+func NewDiscovery(conf *SDConfig, logger log.Logger) (*Discovery, error) {
+	if logger == nil {
+		logger = log.NewNopLogger()
+	}
+
 	tls, err := httputil.NewTLSConfig(conf.TLSConfig)
 	if err != nil {
 		return nil, err
 	}
-	transport := &http.Transport{TLSClientConfig: tls}
-	wrapper := &http.Client{Transport: transport}
+	transport := &http.Transport{
+		TLSClientConfig: tls,
+		DialContext: conntrack.NewDialContextFunc(
+			conntrack.DialWithTracing(),
+			conntrack.DialWithName("consul_sd"),
+		),
+	}
+	wrapper := &http.Client{
+		Transport: transport,
+		Timeout:   35 * time.Second,
+	}
 
 	clientConf := &consul.Config{
 		Address:    conf.Server,
@@ -144,8 +202,8 @@ func (d *Discovery) shouldWatch(name string) bool {
 	return false
 }
 
-// Run implements the TargetProvider interface.
-func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
+// Run implements the Discoverer interface.
+func (d *Discovery) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	// Watched services and their cancelation functions.
 	services := map[string]func(){}
 
@@ -168,7 +226,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		}
 
 		if err != nil {
-			d.logger.Errorf("Error refreshing service list: %s", err)
+			level.Error(d.logger).Log("msg", "Error refreshing service list", "err", err)
 			rpcFailuresCount.Inc()
 			time.Sleep(retryInterval)
 			continue
@@ -184,7 +242,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 		if d.clientDatacenter == "" {
 			info, err := d.client.Agent().Self()
 			if err != nil {
-				d.logger.Errorf("Error retrieving datacenter name: %s", err)
+				level.Error(d.logger).Log("msg", "Error retrieving datacenter name", "err", err)
 				time.Sleep(retryInterval)
 				continue
 			}
@@ -228,7 +286,7 @@ func (d *Discovery) Run(ctx context.Context, ch chan<- []*config.TargetGroup) {
 				select {
 				case <-ctx.Done():
 					return
-				case ch <- []*config.TargetGroup{{Source: name}}:
+				case ch <- []*targetgroup.Group{{Source: name}}:
 				}
 			}
 		}
@@ -244,7 +302,7 @@ type consulService struct {
 	logger       log.Logger
 }
 
-func (srv *consulService) watch(ctx context.Context, ch chan<- []*config.TargetGroup) {
+func (srv *consulService) watch(ctx context.Context, ch chan<- []*targetgroup.Group) {
 	catalog := srv.client.Catalog()
 
 	lastIndex := uint64(0)
@@ -265,7 +323,7 @@ func (srv *consulService) watch(ctx context.Context, ch chan<- []*config.TargetG
 		}
 
 		if err != nil {
-			srv.logger.Errorf("Error refreshing service %s: %s", srv.name, err)
+			level.Error(srv.logger).Log("msg", "Error refreshing service", "service", srv.name, "err", err)
 			rpcFailuresCount.Inc()
 			time.Sleep(retryInterval)
 			continue
@@ -276,7 +334,7 @@ func (srv *consulService) watch(ctx context.Context, ch chan<- []*config.TargetG
 		}
 		lastIndex = meta.LastIndex
 
-		tgroup := config.TargetGroup{
+		tgroup := targetgroup.Group{
 			Source:  srv.name,
 			Labels:  srv.labels,
 			Targets: make([]model.LabelSet, 0, len(nodes)),
@@ -324,7 +382,7 @@ func (srv *consulService) watch(ctx context.Context, ch chan<- []*config.TargetG
 		select {
 		case <-ctx.Done():
 			return
-		case ch <- []*config.TargetGroup{&tgroup}:
+		case ch <- []*targetgroup.Group{&tgroup}:
 		}
 	}
 }

@@ -15,6 +15,7 @@ package template
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -22,12 +23,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	html_template "html/template"
 	text_template "text/template"
 
 	"github.com/prometheus/common/model"
-	"golang.org/x/net/context"
 
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/util/strutil"
@@ -57,46 +58,23 @@ func (q queryResultByLabelSorter) Swap(i, j int) {
 	q.results[i], q.results[j] = q.results[j], q.results[i]
 }
 
-func query(ctx context.Context, q string, timestamp model.Time, queryEngine *promql.Engine) (queryResult, error) {
-	query, err := queryEngine.NewInstantQuery(q, timestamp)
+// QueryFunc executes a PromQL query at the given time.
+type QueryFunc func(context.Context, string, time.Time) (promql.Vector, error)
+
+func query(ctx context.Context, q string, ts time.Time, queryFn QueryFunc) (queryResult, error) {
+	vector, err := queryFn(ctx, q, ts)
 	if err != nil {
 		return nil, err
-	}
-	res := query.Exec(ctx)
-	if res.Err != nil {
-		return nil, res.Err
-	}
-	var vector model.Vector
-
-	switch v := res.Value.(type) {
-	case model.Matrix:
-		return nil, errors.New("matrix return values not supported")
-	case model.Vector:
-		vector = v
-	case *model.Scalar:
-		vector = model.Vector{&model.Sample{
-			Value:     v.Value,
-			Timestamp: v.Timestamp,
-		}}
-	case *model.String:
-		vector = model.Vector{&model.Sample{
-			Metric:    model.Metric{"__value__": model.LabelValue(v.Value)},
-			Timestamp: v.Timestamp,
-		}}
-	default:
-		panic("template.query: unhandled result value type")
 	}
 
 	// promql.Vector is hard to work with in templates, so convert to
 	// base data types.
+	// TODO(fabxc): probably not true anymore after type rework.
 	var result = make(queryResult, len(vector))
 	for n, v := range vector {
 		s := sample{
-			Value:  float64(v.Value),
-			Labels: make(map[string]string),
-		}
-		for label, value := range v.Metric {
-			s.Labels[string(label)] = string(value)
+			Value:  v.V,
+			Labels: v.Metric.Map(),
 		}
 		result[n] = &s
 	}
@@ -112,14 +90,22 @@ type Expander struct {
 }
 
 // NewTemplateExpander returns a template expander ready to use.
-func NewTemplateExpander(ctx context.Context, text string, name string, data interface{}, timestamp model.Time, queryEngine *promql.Engine, externalURL *url.URL) *Expander {
+func NewTemplateExpander(
+	ctx context.Context,
+	text string,
+	name string,
+	data interface{},
+	timestamp model.Time,
+	queryFunc QueryFunc,
+	externalURL *url.URL,
+) *Expander {
 	return &Expander{
 		text: text,
 		name: name,
 		data: data,
 		funcMap: text_template.FuncMap{
 			"query": func(q string) (queryResult, error) {
-				return query(ctx, q, timestamp, queryEngine)
+				return query(ctx, q, timestamp.Time(), queryFunc)
 			},
 			"first": func(v queryResult) (*sample, error) {
 				if len(v) > 0 {

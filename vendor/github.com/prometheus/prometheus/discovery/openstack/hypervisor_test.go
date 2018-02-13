@@ -20,9 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/config"
 )
 
 type OpenstackSDHypervisorTestSuite struct {
@@ -49,7 +47,7 @@ func TestOpenstackSDHypervisorSuite(t *testing.T) {
 }
 
 func (s *OpenstackSDHypervisorTestSuite) openstackAuthSuccess() (Discovery, error) {
-	conf := config.OpenstackSDConfig{
+	conf := SDConfig{
 		IdentityEndpoint: s.Mock.Endpoint(),
 		Password:         "test",
 		Username:         "test",
@@ -57,7 +55,7 @@ func (s *OpenstackSDHypervisorTestSuite) openstackAuthSuccess() (Discovery, erro
 		Region:           "RegionOne",
 		Role:             "hypervisor",
 	}
-	return NewDiscovery(&conf, log.Base())
+	return NewDiscovery(&conf, nil)
 }
 
 func (s *OpenstackSDHypervisorTestSuite) TestOpenstackSDHypervisorRefresh() {
