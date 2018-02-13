@@ -6,7 +6,7 @@ Add following setting to `prometheus.yml`.
 
 ```
 remote_read:
-  - url: http://localhost:9201/read
+  - url: http://localhost:9415/read
 ```
 
 And then, launch read adapter.
