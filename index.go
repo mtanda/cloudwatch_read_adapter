@@ -222,7 +222,7 @@ func (indexer *Indexer) getMatchedLables(matchers []labels.Matcher, start int64,
 }
 
 type IndexerState struct {
-	TimestampTo map[string]int64 `json:"timestamp"`
+	TimestampTo map[string]int64 `json:"timestampTo"`
 }
 
 func (indexer *Indexer) saveState() error {
