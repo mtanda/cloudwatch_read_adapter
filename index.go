@@ -113,7 +113,7 @@ func (indexer *Indexer) start(eg *errgroup.Group, ctx context.Context) {
 	indexer.indexedTimestampFrom = time.Now().UTC()
 	if state, err := indexer.loadState(); err == nil {
 		indexer.s = state
-		level.Info(indexer.logger).Log("msg", "state loaded", "timestamp", indexer.s.TimestampTo)
+		level.Info(indexer.logger).Log("msg", "state loaded", "timestamp", fmt.Sprintf("%+v", indexer.s.TimestampTo))
 	} else {
 		level.Error(indexer.logger).Log("err", err)
 	}
