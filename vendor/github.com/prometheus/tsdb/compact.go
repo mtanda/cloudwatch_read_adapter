@@ -91,8 +91,8 @@ func newCompactorMetrics(r prometheus.Registerer) *compactorMetrics {
 		Help: "Total number of compactions that failed for the partition.",
 	})
 	m.duration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "prometheus_tsdb_compaction_duration",
-		Help:    "Duration of compaction runs.",
+		Name:    "prometheus_tsdb_compaction_duration_seconds",
+		Help:    "Duration of compaction runs",
 		Buckets: prometheus.ExponentialBuckets(1, 2, 10),
 	})
 	m.chunkSize = prometheus.NewHistogram(prometheus.HistogramOpts{
@@ -151,9 +151,11 @@ func (c *LeveledCompactor) Plan(dir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(dirs) < 1 {
+		return nil, nil
+	}
 
 	var dms []dirMeta
-
 	for _, dir := range dirs {
 		meta, err := readMetaFile(dir)
 		if err != nil {
@@ -168,6 +170,10 @@ func (c *LeveledCompactor) plan(dms []dirMeta) ([]string, error) {
 	sort.Slice(dms, func(i, j int) bool {
 		return dms[i].meta.MinTime < dms[j].meta.MinTime
 	})
+
+	// We do not include a recently created block with max(minTime), so the block which was just created from WAL.
+	// This gives users a window of a full block size to piece-wise backup new data without having to care about data overlap.
+	dms = dms[:len(dms)-1]
 
 	var res []string
 	for _, dm := range c.selectDirs(dms) {
@@ -431,7 +437,6 @@ func (c *LeveledCompactor) write(dest string, meta *BlockMeta, blocks ...BlockRe
 	if err != nil {
 		return errors.Wrap(err, "open index writer")
 	}
-	meta.Version = indexw.Version
 
 	if err := c.populateBlock(blocks, meta, indexw, chunkw); err != nil {
 		return errors.Wrap(err, "write compaction")

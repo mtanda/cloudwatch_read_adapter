@@ -260,6 +260,7 @@ The following meta labels are available on targets during relabeling:
 * `__meta_azure_machine_id`: the machine ID
 * `__meta_azure_machine_location`: the location the machine runs in
 * `__meta_azure_machine_name`: the machine name
+* `__meta_azure_machine_os_type`: the machine operating system
 * `__meta_azure_machine_private_ip`: the machine's private IP
 * `__meta_azure_machine_resource_group`: the machine's resource group
 * `__meta_azure_machine_tag_<tagname>`: each tag value of the machine
@@ -305,10 +306,10 @@ The following meta labels are available on targets during [relabeling](#relabel_
 ```yaml
 # The information to access the Consul API. It is to be defined
 # as the Consul documentation requires.
-server: <host>
+[ server: <host> | default = "localhost:8500" ]
 [ token: <secret> ]
 [ datacenter: <string> ]
-[ scheme: <string> | default = "http"]
+[ scheme: <string> | default = "http" ]
 [ username: <string> ]
 [ password: <secret> ]
 
@@ -1135,7 +1136,7 @@ required_matchers:
   [ <labelname>: <labelvalue> ... ]
 
 # Timeout for requests to the remote read endpoint.
-[ remote_timeout: <duration> | default = 30s ]
+[ remote_timeout: <duration> | default = 1m ]
 
 # Whether reads should be made for queries for time ranges that
 # the local storage should have complete data for.
