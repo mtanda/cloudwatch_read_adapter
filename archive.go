@@ -106,7 +106,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		namespace:          cfg.Namespace,
 		statistics:         []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
 		extendedStatistics: []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
-		interval:           time.Duration(24) * time.Hour,
+		interval:           time.Duration(24/4) * time.Hour,
 		s:                  s,
 		storagePath:        storagePath,
 		logger:             logger,
