@@ -23,9 +23,25 @@ import (
 	"github.com/prometheus/tsdb/testutil"
 )
 
-func TestSetCompactionFailed(t *testing.T) {
-	tmpdir, err := ioutil.TempDir("", "test-tsdb")
+// In Prometheus 2.1.0 we had a bug where the meta.json version was falsely bumped
+// to 2. We had a migration in place resetting it to 1 but we should move immediately to
+// version 3 next time to avoid confusion and issues.
+func TestBlockMetaMustNeverBeVersion2(t *testing.T) {
+	dir, err := ioutil.TempDir("", "metaversion")
 	testutil.Ok(t, err)
+	defer os.RemoveAll(dir)
+
+	testutil.Ok(t, writeMetaFile(dir, &BlockMeta{}))
+
+	meta, err := readMetaFile(dir)
+	testutil.Ok(t, err)
+	testutil.Assert(t, meta.Version != 2, "meta.json version must never be 2")
+}
+
+func TestSetCompactionFailed(t *testing.T) {
+	tmpdir, err := ioutil.TempDir("", "test")
+	testutil.Ok(t, err)
+	defer os.RemoveAll(tmpdir)
 
 	b := createEmptyBlock(t, tmpdir)
 

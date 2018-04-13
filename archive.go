@@ -106,7 +106,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		namespace:          cfg.Namespace,
 		statistics:         []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
 		extendedStatistics: []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
-		interval:           time.Duration(24) * time.Hour,
+		interval:           time.Duration(24/4) * time.Hour,
 		s:                  s,
 		storagePath:        storagePath,
 		logger:             logger,
@@ -185,6 +185,19 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 				archiver.db.DisableCompactions()
 				app := archiver.db.Appender()
+				l := make(labels.Labels, 0)
+				l = append(l, labels.Label{Name: "__name__", Value: "dummy"})
+				if _, err = app.Add(l, startTime.Unix()*1000, 0); err != nil {
+					return err
+				}
+				if err := app.Commit(); err != nil {
+					return err
+				}
+				appenders := make(map[int]*tsdb.Appender)
+				for i := range archiver.namespace {
+					app := archiver.db.Appender()
+					appenders[i] = &app
+				}
 				for {
 					select {
 					case <-ft.C:
@@ -192,7 +205,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 						if len(matchedLabelsList) > 0 {
 							matchedLabels := matchedLabelsList[archiver.s.Index]
-							err = archiver.process(app, matchedLabels, startTime, endTime)
+							err = archiver.process(*appenders[archiver.s.Namespace], matchedLabels, startTime, endTime)
 							if err != nil {
 								return err
 							}
@@ -212,9 +225,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								}
 
 								archiver.db.EnableCompactions()
-								if err := app.Commit(); err != nil {
+								if err := (*appenders[lastNamespace]).Commit(); err != nil {
 									return err
 								}
+								appenders[lastNamespace] = nil // release appender
 								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
@@ -231,9 +245,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 								return nil
 							} else {
-								if err := app.Commit(); err != nil {
+								if err := (*appenders[lastNamespace]).Commit(); err != nil {
 									return err
 								}
+								appenders[lastNamespace] = nil // release appender
 								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
 								if err := archiver.saveState(); err != nil {
 									return err
@@ -253,17 +268,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(len(matchedLabelsList)))
 							}
 						}
-					case <-wt.C:
-						wt.Reset(1 * time.Minute)
-
-						if err := app.Commit(); err != nil {
-							return err
-						}
-						if err := archiver.saveState(); err != nil {
-							return err
-						}
-						level.Info(archiver.logger).Log("namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
-						archiverTargetsProgress.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(archiver.s.Index))
 					case <-actx.Done():
 						if !ft.Stop() {
 							<-ft.C

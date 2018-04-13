@@ -20,6 +20,8 @@
     "aws/request",
     "aws/session",
     "aws/signer/v4",
+    "internal/sdkio",
+    "internal/sdkrand",
     "internal/shareddefaults",
     "private/protocol",
     "private/protocol/query",
@@ -29,8 +31,8 @@
     "service/cloudwatch",
     "service/sts"
   ]
-  revision = "12a4975283c52e2fa88b0ae22882f83cf048eeb4"
-  version = "v1.12.27"
+  revision = "9b0098a71f6d4d473a26ec8ad3c2feaac6eb1da6"
+  version = "v1.13.32"
 
 [[projects]]
   branch = "master"
@@ -184,8 +186,8 @@
 [[projects]]
   name = "github.com/prometheus/prometheus"
   packages = ["prompb"]
-  revision = "85f23d82a045d103ea7f3c89a91fba4a93e6367a"
-  version = "v2.1.0"
+  revision = "bc6058c81272a8d938c05e75607371284236aadc"
+  version = "v2.2.1"
 
 [[projects]]
   name = "github.com/prometheus/tsdb"
@@ -197,7 +199,7 @@
     "index",
     "labels"
   ]
-  revision = "44dd5e1202b7598d50c69ce3617ca6ae6503cf52"
+  revision = "659ed644294eec6310cef0685b002a3aed8c8f85"
 
 [[projects]]
   branch = "master"
@@ -288,6 +290,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "950beab8ab17132ae224d11f8bc39f911e1f90ce010398de6226c1d225060203"
+  inputs-digest = "4932bdad0799750ffadae23954cebb2a18859323505dd7c166e825b66f7baab6"
   solver-name = "gps-cdcl"
   solver-version = 1
