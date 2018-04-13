@@ -55,6 +55,8 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 			})
 		}
 	}
+	query.StartTime = aws.Time(time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000)))
+	query.EndTime = aws.Time(time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000)))
 	queries = append(queries, query)
 
 	return region, queries, nil
@@ -127,6 +129,8 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}
 			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}
 		}
+		query.StartTime = aws.Time(time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000)))
+		query.EndTime = aws.Time(time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000)))
 		queries = append(queries, query)
 	}
 
@@ -146,8 +150,8 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
 		rangeAdjust = time.Duration(periodUnit) * time.Second
 	}
-	query.StartTime = aws.Time(time.Unix(q.StartTimestampMs/1000, 0).Truncate(time.Duration(periodUnit)).Add(rangeAdjust))
-	query.EndTime = aws.Time(time.Unix(q.EndTimestampMs/1000, 0).Truncate(time.Duration(periodUnit)))
+	query.StartTime = aws.Time(query.StartTime.Truncate(time.Duration(periodUnit)).Add(rangeAdjust))
+	query.EndTime = aws.Time(query.EndTime.Truncate(time.Duration(periodUnit)))
 
 	// auto calibrate period
 	period := calibratePeriod(*query.StartTime)

@@ -54,36 +54,57 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	}
 
-	// get archived result
-	if archiver.isArchived(startTime, []string{namespace}) {
-		level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
-		aq := *q
-		aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
-		archivedResult, err := archiver.query(&aq)
-		if err != nil {
-			level.Error(logger).Log("err", err)
-			return result
-		}
-		result = append(result, archivedResult...)
-		q.StartTimestampMs = aq.EndTimestampMs
-		level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
-	}
-
-	// parse query
 	var region string
 	var queries []*cloudwatch.GetMetricStatisticsInput
 	var err error
+
+	// get archived result
+	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
+		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
+			expiredTime := time.Now().Add(-archiver.retention)
+			if endTime.Before(expiredTime) {
+				expiredTime = endTime
+			}
+			baq := *q
+			baq.EndTimestampMs = expiredTime.Unix() * 1000
+			q.StartTimestampMs = baq.EndTimestampMs + 1000
+			level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
+			region, queries, err = getQueryWithIndex(&baq, indexer)
+			if err != nil {
+				level.Error(logger).Log("err", err)
+				return result
+			}
+		}
+		if q.StartTimestampMs < q.EndTimestampMs {
+			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
+			aq := *q
+			aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
+			archivedResult, err := archiver.query(&aq)
+			if err != nil {
+				level.Error(logger).Log("err", err)
+				return result
+			}
+			result = append(result, archivedResult...)
+			q.StartTimestampMs = aq.EndTimestampMs
+			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
+		}
+	}
+
+	// parse query
 	if q.StartTimestampMs < q.EndTimestampMs {
+		var extraQueries []*cloudwatch.GetMetricStatisticsInput
 		if indexer.isExpired(endTime, []string{namespace}) {
 			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
-			region, queries, err = getQueryWithoutIndex(q, indexer)
+			region, extraQueries, err = getQueryWithoutIndex(q, indexer)
+			queries = append(queries, extraQueries...)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result
 			}
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
-			region, queries, err = getQueryWithIndex(q, indexer)
+			region, extraQueries, err = getQueryWithIndex(q, indexer)
+			queries = append(queries, extraQueries...)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result
