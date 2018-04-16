@@ -53,6 +53,7 @@ type Archiver struct {
 	statistics         []*string
 	extendedStatistics []*string
 	interval           time.Duration
+	retention          time.Duration
 	s                  *ArchiverState
 	storagePath        string
 	logger             log.Logger
@@ -107,6 +108,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		statistics:         []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
 		extendedStatistics: []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}, // TODO: add to config
 		interval:           time.Duration(24/4) * time.Hour,
+		retention:          time.Duration(retention),
 		s:                  s,
 		storagePath:        storagePath,
 		logger:             logger,
@@ -502,6 +504,14 @@ func (archiver *Archiver) isArchived(t time.Time, namespace []string) bool {
 		if t.After(time.Unix(archiver.s.Timestamp[n], 0)) {
 			return false
 		}
+	}
+	return true
+}
+
+func (archiver *Archiver) isExpired(t time.Time) bool {
+	expiredTime := time.Now().Add(-archiver.retention)
+	if t.After(expiredTime) {
+		return false
 	}
 	return true
 }
