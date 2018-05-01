@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,12 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 			query.Statistics = []*string{aws.String(m.Value)}
 		case "ExtendedStatistic":
 			query.ExtendedStatistics = []*string{aws.String(m.Value)}
+		case "Period":
+			v, err := strconv.ParseInt(m.Value, 10, 64)
+			if err != nil {
+				return region, queries, err
+			}
+			query.Period = aws.Int64(v)
 		default:
 			query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
 				Name:  aws.String(m.Name),
@@ -123,6 +130,14 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 				query.Statistics = statistics
 			case "ExtendedStatistic":
 				query.ExtendedStatistics = statistics
+			case "Period":
+				if m.Type == prompb.LabelMatcher_EQ {
+					v, err := strconv.ParseInt(m.Value, 10, 64)
+					if err != nil {
+						return region, queries, err
+					}
+					query.Period = aws.Int64(v)
+				}
 			}
 		}
 		if len(query.Statistics) == 0 && len(query.ExtendedStatistics) == 0 {
@@ -154,19 +169,42 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	query.EndTime = aws.Time(query.EndTime.Truncate(time.Duration(periodUnit)))
 
 	// auto calibrate period
-	period := calibratePeriod(*query.StartTime)
-	queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
-	if queryTimeRange/float64(period) >= 1440 {
-		period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
+	highResolution := true
+	if query.Period == nil {
+		period := calibratePeriod(*query.StartTime)
+		queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
+		if queryTimeRange/float64(period) >= 1440 {
+			period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
+		}
+		query.Period = aws.Int64(int64(period))
+		highResolution = false
 	}
-	query.Period = aws.Int64(int64(period))
 
-	resp, err := svc.GetMetricStatistics(query)
-	if err != nil {
-		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
-		return result, err
+	startTime := *query.StartTime
+	endTime := *query.EndTime
+	var resp *cloudwatch.GetMetricStatisticsOutput
+	for startTime.Before(endTime) {
+		query.StartTime = aws.Time(startTime)
+		if highResolution {
+			startTime = startTime.Add(time.Duration(1440*(*query.Period)) * time.Second)
+		} else {
+			startTime = endTime
+		}
+		query.EndTime = aws.Time(startTime)
+
+		partResp, err := svc.GetMetricStatistics(query)
+		if err != nil {
+			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
+			return result, err
+		}
+		if resp != nil {
+			resp.Datapoints = append(resp.Datapoints, partResp.Datapoints...)
+		} else {
+			resp = partResp
+
+		}
+		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
 	}
-	cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
 
 	// make time series
 	paramStatistics := append(query.Statistics, query.ExtendedStatistics...)
