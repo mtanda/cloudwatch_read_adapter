@@ -201,9 +201,11 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 			resp.Datapoints = append(resp.Datapoints, partResp.Datapoints...)
 		} else {
 			resp = partResp
-
 		}
 		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
+		if len(resp.Datapoints) > 11000 {
+			return result, fmt.Errorf("exceed maximum datapoints")
+		}
 	}
 
 	// make time series
