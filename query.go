@@ -76,7 +76,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 	// index doesn't have statistics label, get label matchers without statistics
 	mm := make([]*prompb.LabelMatcher, 0)
 	for _, m := range q.Matchers {
-		if m.Name == "Statistic" || m.Name == "ExtendedStatistic" {
+		if m.Name == "Statistic" || m.Name == "ExtendedStatistic" || m.Name == "Period" {
 			continue
 		}
 		mm = append(mm, m)
