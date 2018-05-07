@@ -312,42 +312,51 @@ func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.
 func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, startTime time.Time, endTime time.Time) error {
 	timeAlignment := 60
 
-	params := &cloudwatch.GetMetricStatisticsInput{}
-	for _, label := range _labels {
-		switch label.Name {
-		case "Region":
-			// ignore // TODO: support multiple region?
-		case "Namespace":
-			params.Namespace = aws.String(label.Value)
-		case "__name__":
-			params.MetricName = aws.String(label.Value)
-		default:
-			if params.Dimensions == nil {
-				params.Dimensions = make([]*cloudwatch.Dimension, 0)
+	var resp *cloudwatch.GetMetricStatisticsOutput
+	var params *cloudwatch.GetMetricStatisticsInput
+	var err error
+	for _, period := range []int{timeAlignment, 300} {
+		params = &cloudwatch.GetMetricStatisticsInput{}
+		for _, label := range _labels {
+			switch label.Name {
+			case "Region":
+				// ignore // TODO: support multiple region?
+			case "Namespace":
+				params.Namespace = aws.String(label.Value)
+			case "__name__":
+				params.MetricName = aws.String(label.Value)
+			default:
+				if params.Dimensions == nil {
+					params.Dimensions = make([]*cloudwatch.Dimension, 0)
+				}
+				params.Dimensions = append(params.Dimensions, &cloudwatch.Dimension{
+					Name:  aws.String(label.Name),
+					Value: aws.String(label.Value),
+				})
 			}
-			params.Dimensions = append(params.Dimensions, &cloudwatch.Dimension{
-				Name:  aws.String(label.Name),
-				Value: aws.String(label.Value),
-			})
+		}
+		params.Statistics = archiver.statistics
+		params.ExtendedStatistics = archiver.extendedStatistics
+		params.Period = aws.Int64(int64(period))
+		params.StartTime = aws.Time(startTime)
+		params.EndTime = aws.Time(endTime)
+
+		if params.Namespace == nil || params.MetricName == nil ||
+			(params.Statistics == nil && params.ExtendedStatistics == nil) {
+			return fmt.Errorf("missing parameter")
+		}
+
+		resp, err = archiver.cloudwatch.GetMetricStatistics(params)
+		if err != nil {
+			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
+			return err
+		}
+		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
+
+		if len(resp.Datapoints) > 0 {
+			break
 		}
 	}
-	params.Statistics = archiver.statistics
-	params.ExtendedStatistics = archiver.extendedStatistics
-	params.Period = aws.Int64(int64(timeAlignment))
-	params.StartTime = aws.Time(startTime)
-	params.EndTime = aws.Time(endTime)
-
-	if params.Namespace == nil || params.MetricName == nil ||
-		(params.Statistics == nil && params.ExtendedStatistics == nil) {
-		return fmt.Errorf("missing parameter")
-	}
-
-	resp, err := archiver.cloudwatch.GetMetricStatistics(params)
-	if err != nil {
-		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
-		return err
-	}
-	cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
 
 	sort.Slice(resp.Datapoints, func(i, j int) bool {
 		return resp.Datapoints[i].Timestamp.Before(*resp.Datapoints[j].Timestamp)
