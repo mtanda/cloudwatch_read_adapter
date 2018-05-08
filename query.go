@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	"github.com/prometheus/client_golang/prometheus"
+	prom_value "github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -230,6 +231,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	sort.Slice(resp.Datapoints, func(i, j int) bool {
 		return resp.Datapoints[i].Timestamp.Before(*resp.Datapoints[j].Timestamp)
 	})
+	var lastTimestamp time.Time
 	for _, dp := range resp.Datapoints {
 		for _, s := range paramStatistics {
 			value := 0.0
@@ -253,7 +255,17 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 				value = *dp.ExtendedStatistics[*s]
 			}
 			ts := tsm[*s]
+			if !lastTimestamp.IsZero() && lastTimestamp.Add(time.Duration(*query.Period)*time.Second).Before(*dp.Timestamp) {
+				ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
+			}
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: value, Timestamp: dp.Timestamp.Unix() * 1000})
+		}
+		lastTimestamp = *dp.Timestamp
+	}
+	if !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) {
+		for _, s := range paramStatistics {
+			ts := tsm[*s]
+			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
 		}
 	}
 
