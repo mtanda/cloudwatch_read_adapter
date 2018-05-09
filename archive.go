@@ -16,6 +16,7 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
+	prom_value "github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/tsdb"
 	"github.com/prometheus/tsdb/labels"
@@ -483,10 +484,18 @@ func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
 		}
 
+		lastTimestamp := int64(0)
 		it := s.Iterator()
 		for it.Next() {
 			t, v := it.At()
+			if lastTimestamp != 0 && lastTimestamp+(60*1000) < t {
+				ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (60 * 1000)})
+			}
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: v, Timestamp: t})
+			lastTimestamp = t
+		}
+		if lastTimestamp != 0 && lastTimestamp < q.EndTimestampMs {
+			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (60 * 1000)})
 		}
 
 		result = append(result, ts)

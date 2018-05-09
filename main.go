@@ -78,7 +78,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		if q.StartTimestampMs < q.EndTimestampMs {
 			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
 			aq := *q
-			aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
+			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000+1000 {
+				aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
+			}
 			archivedResult, err := archiver.query(&aq)
 			if err != nil {
 				level.Error(logger).Log("err", err)
