@@ -57,10 +57,12 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 			}
 			query.Period = aws.Int64(v)
 		default:
-			query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
-				Name:  aws.String(m.Name),
-				Value: aws.String(m.Value),
-			})
+			if m.Value != "" {
+				query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
+					Name:  aws.String(m.Name),
+					Value: aws.String(m.Value),
+				})
+			}
 		}
 	}
 	query.StartTime = aws.Time(time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000)))
@@ -112,10 +114,12 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 				if query.Dimensions == nil {
 					query.Dimensions = make([]*cloudwatch.Dimension, 0)
 				}
-				query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
-					Name:  aws.String(label.Name),
-					Value: aws.String(label.Value),
-				})
+				if label.Value != "" {
+					query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
+						Name:  aws.String(label.Name),
+						Value: aws.String(label.Value),
+					})
+				}
 			}
 		}
 		for _, m := range q.Matchers {
