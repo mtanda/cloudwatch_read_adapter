@@ -311,13 +311,12 @@ func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.
 }
 
 func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, startTime time.Time, endTime time.Time) error {
-	baseTimeAlignment := 60
-	var timeAlignment int
+	timeAlignment := 60
 
 	var resp *cloudwatch.GetMetricStatisticsOutput
 	var params *cloudwatch.GetMetricStatisticsInput
 	var err error
-	for _, timeAlignment = range []int{60, 300} {
+	for _, period := range []int{timeAlignment, 300} {
 		params = &cloudwatch.GetMetricStatisticsInput{}
 		for _, label := range _labels {
 			switch label.Name {
@@ -339,7 +338,7 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 		}
 		params.Statistics = archiver.statistics
 		params.ExtendedStatistics = archiver.extendedStatistics
-		params.Period = aws.Int64(int64(timeAlignment))
+		params.Period = aws.Int64(int64(period))
 		params.StartTime = aws.Time(startTime)
 		params.EndTime = aws.Time(endTime)
 
@@ -411,13 +410,6 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 				errAdd = app.AddFast(refs[*s], dp.Timestamp.Unix()*1000, value)
 			} else {
 				refs[*s], errAdd = app.Add(l, dp.Timestamp.Unix()*1000, value)
-			}
-			if timeAlignment > baseTimeAlignment {
-				i := 1
-				for i <= ((timeAlignment / baseTimeAlignment) - 1) {
-					errAdd = app.AddFast(refs[*s], (dp.Timestamp.Unix()+int64(baseTimeAlignment*i))*1000, value)
-					i++
-				}
 			}
 			if errAdd != nil {
 				level.Error(archiver.logger).Log("err", errAdd)
