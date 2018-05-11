@@ -150,11 +150,11 @@ func (indexer *Indexer) index(ctx context.Context) error {
 						for _, metric := range metrics {
 							resp.Metrics = append(resp.Metrics, metric.(*cloudwatch.Metric))
 						}
-						cloudwatchApiCalls.WithLabelValues("ListMetrics", "success").Add(float64(1))
+						cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "success").Add(float64(1))
 						return !lastPage
 					})
 				if err != nil {
-					cloudwatchApiCalls.WithLabelValues("ListMetrics", "error").Add(float64(1))
+					cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "error").Add(float64(1))
 					level.Error(indexer.logger).Log("err", err)
 					continue // ignore temporary error
 				}

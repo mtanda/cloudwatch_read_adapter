@@ -349,10 +349,10 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 
 		resp, err = archiver.cloudwatch.GetMetricStatistics(params)
 		if err != nil {
-			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
+			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *params.Namespace, "archive", "error").Add(float64(1))
 			return err
 		}
-		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
+		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *params.Namespace, "archive", "success").Add(float64(1))
 
 		if len(resp.Datapoints) > 0 {
 			break

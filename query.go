@@ -21,7 +21,7 @@ var (
 			Name: "cloudwatch_read_adapter_cloudwatch_api_calls_total",
 			Help: "The total number of CloudWatch API calls",
 		},
-		[]string{"api", "status"},
+		[]string{"api", "namespace", "from", "status"},
 	)
 )
 
@@ -199,7 +199,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 
 		partResp, err := svc.GetMetricStatistics(query)
 		if err != nil {
-			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "error").Add(float64(1))
+			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *query.Namespace, "query", "error").Add(float64(1))
 			return result, err
 		}
 		if resp != nil {
@@ -207,7 +207,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 		} else {
 			resp = partResp
 		}
-		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", "success").Add(float64(1))
+		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *query.Namespace, "query", "success").Add(float64(1))
 		if len(resp.Datapoints) > 11000 {
 			return result, fmt.Errorf("exceed maximum datapoints")
 		}
