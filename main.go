@@ -36,10 +36,19 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 	result := []*prompb.TimeSeries{}
 
 	namespace := ""
-	for _, m := range q.Matchers {
+	jobIndex := -1
+	originalJobLabel := ""
+	for i, m := range q.Matchers {
 		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Namespace" {
 			namespace = m.Value
 		}
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "job" {
+			jobIndex = i
+			originalJobLabel = m.Value
+		}
+	}
+	if jobIndex >= 0 {
+		q.Matchers = append(q.Matchers[:jobIndex], q.Matchers[jobIndex+1:]...)
 	}
 	if namespace == "" {
 		level.Debug(logger).Log("msg", "namespace is required")
@@ -134,6 +143,11 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 			return result
 		}
 		result = append(result, cwResult...)
+	}
+	if originalJobLabel != "" {
+		for _, ts := range result {
+			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
+		}
 	}
 
 	level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
