@@ -157,8 +157,8 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 	return region, queries, nil
 }
 
-func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query) ([]*prompb.TimeSeries, error) {
-	result := []*prompb.TimeSeries{}
+func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query) (resultMap, error) {
+	result := make(resultMap)
 
 	if query.Namespace == nil || query.MetricName == nil {
 		return result, fmt.Errorf("missing parameter")
@@ -274,7 +274,14 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	}
 
 	for _, ts := range tsm {
-		result = append(result, ts)
+		id := ""
+		sort.Slice(ts.Labels, func(i, j int) bool {
+			return ts.Labels[i].Name < ts.Labels[j].Name
+		})
+		for _, label := range ts.Labels {
+			id = id + label.Name + label.Value
+		}
+		result[id] = ts
 	}
 
 	return result, nil

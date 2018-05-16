@@ -455,8 +455,8 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
-	result := []*prompb.TimeSeries{}
+func (archiver *Archiver) query(q *prompb.Query) (resultMap, error) {
+	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
 	if err != nil {
@@ -480,8 +480,13 @@ func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
 		s := ss.At()
 
 		labels := s.Labels()
+		sort.Slice(labels, func(i, j int) bool {
+			return labels[i].Name < labels[j].Name
+		})
+		id := ""
 		for _, label := range labels {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
+			id = id + label.Name + label.Value
 		}
 
 		lastTimestamp := int64(0)
@@ -498,7 +503,7 @@ func (archiver *Archiver) query(q *prompb.Query) ([]*prompb.TimeSeries, error) {
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (60 * 1000)})
 		}
 
-		result = append(result, ts)
+		result[id] = ts
 	}
 
 	return result, nil

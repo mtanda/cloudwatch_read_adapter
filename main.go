@@ -32,8 +32,27 @@ type config struct {
 	storagePath string
 }
 
+type resultMap map[string]*prompb.TimeSeries
+
+func (x resultMap) append(y resultMap) {
+	for id, yts := range y {
+		if xts, ok := x[id]; ok {
+			xts.Samples = append(xts.Samples, yts.Samples...)
+		} else {
+			x[id] = yts
+		}
+	}
+}
+func (x resultMap) slice() []*prompb.TimeSeries {
+	s := []*prompb.TimeSeries{}
+	for _, v := range x {
+		s = append(s, v)
+	}
+	return s
+}
+
 func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.Logger) []*prompb.TimeSeries {
-	result := []*prompb.TimeSeries{}
+	result := make(resultMap)
 
 	namespace := ""
 	jobIndex := -1
@@ -52,7 +71,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 	}
 	if namespace == "" {
 		level.Debug(logger).Log("msg", "namespace is required")
-		return result
+		return result.slice()
 	}
 
 	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
@@ -81,7 +100,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 			region, queries, err = getQueryWithIndex(&baq, indexer)
 			if err != nil {
 				level.Error(logger).Log("err", err)
-				return result
+				return result.slice()
 			}
 		}
 		if q.StartTimestampMs < q.EndTimestampMs {
@@ -93,9 +112,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 			archivedResult, err := archiver.query(&aq)
 			if err != nil {
 				level.Error(logger).Log("err", err)
-				return result
+				return result.slice()
 			}
-			result = append(result, archivedResult...)
+			result.append(archivedResult)
 			q.StartTimestampMs = aq.EndTimestampMs
 			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
 		}
@@ -110,7 +129,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 			queries = append(queries, extraQueries...)
 			if err != nil {
 				level.Error(logger).Log("err", err)
-				return result
+				return result.slice()
 			}
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
@@ -118,21 +137,21 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 			queries = append(queries, extraQueries...)
 			if err != nil {
 				level.Error(logger).Log("err", err)
-				return result
+				return result.slice()
 			}
 		}
 	}
 
 	if len(queries) > 300 {
 		level.Warn(logger).Log("msg", "Too many concurrent queries")
-		return result
+		return result.slice()
 	}
 
 	cfg := &aws.Config{Region: aws.String(region)}
 	sess, err := session.NewSession(cfg)
 	if err != nil {
 		level.Error(logger).Log("err", err)
-		return result
+		return result.slice()
 	}
 	svc := cloudwatch.New(sess, cfg)
 
@@ -140,9 +159,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 		cwResult, err := queryCloudWatch(svc, region, query, q)
 		if err != nil {
 			level.Error(logger).Log("err", err)
-			return result
+			return result.slice()
 		}
-		result = append(result, cwResult...)
+		result.append(cwResult)
 	}
 	if originalJobLabel != "" {
 		for _, ts := range result {
@@ -152,7 +171,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 
 	level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
 
-	return result
+	return result.slice()
 }
 
 func GetDefaultRegion() (string, error) {
