@@ -55,7 +55,7 @@ func (x resultMap) slice() []*prompb.TimeSeries {
 	return s
 }
 
-func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.Logger) []*prompb.TimeSeries {
+func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDelta time.Duration, logger log.Logger) []*prompb.TimeSeries {
 	result := make(resultMap)
 
 	namespace := ""
@@ -160,7 +160,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, logger log.
 	svc := cloudwatch.New(sess, cfg)
 
 	for _, query := range queries {
-		cwResult, err := queryCloudWatch(svc, region, query, q)
+		cwResult, err := queryCloudWatch(svc, region, query, q, lookbackDelta)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return result.slice()
@@ -292,7 +292,7 @@ func main() {
 
 		resp := prompb.ReadResponse{
 			Results: []*prompb.QueryResult{
-				{Timeseries: runQuery(indexer, archiver, req.Queries[0], logger)},
+				{Timeseries: runQuery(indexer, archiver, req.Queries[0], readCfg.LookbackDelta, logger)},
 			},
 		}
 		data, err := proto.Marshal(&resp)

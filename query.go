@@ -157,7 +157,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 	return region, queries, nil
 }
 
-func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query) (resultMap, error) {
+func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 
 	if query.Namespace == nil || query.MetricName == nil {
@@ -266,7 +266,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 		}
 		lastTimestamp = *dp.Timestamp
 	}
-	if !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) {
+	if !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) && lastTimestamp.Before(time.Now().Add(-lookbackDelta)) {
 		for _, s := range paramStatistics {
 			ts := tsm[*s]
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})

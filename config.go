@@ -2,12 +2,14 @@ package main
 
 import (
 	"io/ioutil"
+	"time"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Targets []Target `yaml:"targets"`
+	Targets       []Target      `yaml:"targets"`
+	LookbackDelta time.Duration `yaml:"lookbackDelta"`
 }
 
 type Target struct {
