@@ -179,9 +179,9 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 		period := calibratePeriod(*query.StartTime)
 		queryTimeRange := (*query.EndTime).Sub(*query.StartTime).Seconds()
 		if queryTimeRange/float64(period) >= 1440 {
-			period = int(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * periodUnit
+			period = int64(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * int64(periodUnit)
 		}
-		query.Period = aws.Int64(int64(period))
+		query.Period = aws.Int64(period)
 		highResolution = false
 	}
 
@@ -287,8 +287,8 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 	return result, nil
 }
 
-func calibratePeriod(startTime time.Time) int {
-	var period int
+func calibratePeriod(startTime time.Time) int64 {
+	var period int64
 
 	timeDay := 24 * time.Hour
 	now := time.Now().UTC()
