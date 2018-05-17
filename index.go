@@ -274,7 +274,7 @@ func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
 }
 
 func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
-	t = t.Add(-indexer.interval)
+	t = t.Add(-indexer.interval-60*time.Second)
 	for _, n := range namespace {
 		if time.Unix(indexer.s.TimestampTo[n], 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom) {
 			t = indexer.indexedTimestampFrom
