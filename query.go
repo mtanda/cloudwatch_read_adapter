@@ -214,7 +214,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 			resp = partResp
 		}
 		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *query.Namespace, "query", "success").Add(float64(1))
-		if len(resp.Datapoints) > PROMETHEUS_MAXIMUM_STEPS {
+		if len(resp.Datapoints) > PROMETHEUS_MAXIMUM_POINTS {
 			return result, fmt.Errorf("exceed maximum datapoints")
 		}
 	}

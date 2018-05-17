@@ -41,6 +41,6 @@ func isExtendedStatistics(s string) bool {
 	return s != "Sum" && s != "SampleCount" && s != "Maximum" && s != "Minimum" && s != "Average"
 }
 
-func calcMaximumStep(queryRangeMs int64, q *prompb.Query) int {
-	return int(math.Floor(float64(PROMETHEUS_MAXIMUM_STEPS) * (float64(q.EndTimestampMs-q.StartTimestampMs) / float64(queryRangeMs))))
+func calcMaximumStep(queryRangeSec int64) int {
+	return int(math.Ceil(float64(queryRangeSec) / float64(PROMETHEUS_MAXIMUM_POINTS)))
 }
