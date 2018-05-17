@@ -83,7 +83,10 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 
 	// workaround, align query range to Prometheus original query range
-	q.StartTimestampMs += lookbackDelta.Nanoseconds() / 1000 / 1000
+	lookbackDeltaMs := lookbackDelta.Nanoseconds() / 1000 / 1000
+	if (q.EndTimestampMs - q.StartTimestampMs) > lookbackDeltaMs*2 {
+		q.StartTimestampMs += lookbackDeltaMs
+	}
 	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
 	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	now := time.Now().UTC()
