@@ -118,7 +118,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000+1000 {
 				aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
 			}
-			archivedResult, err := archiver.query(&aq, calcMaximumStep(queryRangeSec), lookbackDelta)
+			archivedResult, err := archiver.query(&aq, calcMaximumStep(queryRangeSec))
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()

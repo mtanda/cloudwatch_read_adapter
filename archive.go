@@ -455,7 +455,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) query(q *prompb.Query, maximumStep int, lookbackDelta time.Duration) (resultMap, error) {
+func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, error) {
 	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
@@ -470,7 +470,6 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int, lookbackDelta 
 	defer querier.Close()
 
 	step := int64(maximumStep)
-	lookbackDeltaMs := lookbackDelta.Nanoseconds() / 1000 / 1000
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average
@@ -496,26 +495,30 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int, lookbackDelta 
 		var lastValue float64
 		t, v := int64(0), float64(0)
 		it := s.Iterator()
-		for refTime := q.StartTimestampMs; refTime < q.EndTimestampMs; refTime += (step * 1000) {
-			for it.Next() {
-				lastTimestamp = t
-				lastValue = v
-				t, v = it.At()
-				if t > refTime && (lastTimestamp > (refTime - lookbackDeltaMs)) {
-					ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-					if (t - lastTimestamp) > (step * 1000) {
-						ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
-					}
-					break
+		refTime := q.StartTimestampMs
+		for it.Next() && refTime < q.EndTimestampMs {
+			lastTimestamp = t
+			lastValue = v
+			t, v = it.At()
+			for refTime < lastTimestamp {
+				refTime += (step * 1000)
+			}
+			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
+				ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+				if (t - lastTimestamp) > (step * 1000) {
+					ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 				}
 			}
 		}
-		if q.EndTimestampMs > lastTimestamp && (lastTimestamp > (q.EndTimestampMs - lookbackDeltaMs)) {
+		if (q.EndTimestampMs > lastTimestamp) && (lastTimestamp > (q.EndTimestampMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 
-		result[id] = ts
+		// workaround
+		if _, ok := result[id]; !ok || len(ts.Samples) > 0 {
+			result[id] = ts
+		}
 	}
 
 	return result, nil
