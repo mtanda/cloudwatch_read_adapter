@@ -29,7 +29,7 @@ func init() {
 	prometheus.MustRegister(cloudwatchApiCalls)
 }
 
-func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
+func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
 	region := ""
 	queries := make([]*cloudwatch.GetMetricStatisticsInput, 0)
 
@@ -55,6 +55,9 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 			if err != nil {
 				return region, queries, err
 			}
+			if v > int64(maximumStep) {
+				v = int64(maximumStep) / 60 * 60
+			}
 			query.Period = aws.Int64(v)
 		default:
 			if m.Value != "" {
@@ -72,7 +75,7 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwa
 	return region, queries, nil
 }
 
-func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
+func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
 	region := ""
 	queries := make([]*cloudwatch.GetMetricStatisticsInput, 0)
 
@@ -141,6 +144,9 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer) (string, []*cloudwatch
 					if err != nil {
 						return region, queries, err
 					}
+					if v > int64(maximumStep) {
+						v = int64(maximumStep) / 60 * 60
+					}
 					query.Period = aws.Int64(v)
 				}
 			}
@@ -208,7 +214,7 @@ func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatc
 			resp = partResp
 		}
 		cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *query.Namespace, "query", "success").Add(float64(1))
-		if len(resp.Datapoints) > 11000 {
+		if len(resp.Datapoints) > PROMETHEUS_MAXIMUM_STEPS {
 			return result, fmt.Errorf("exceed maximum datapoints")
 		}
 	}

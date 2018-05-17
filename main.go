@@ -26,6 +26,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	PROMETHEUS_MAXIMUM_STEPS = 11000
+)
+
 type config struct {
 	listenAddr  string
 	configFile  string
@@ -85,6 +89,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		q.EndTimestampMs = now.Unix() * 1000
 		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	}
+	queryRangeMs := (endTime.Unix() - startTime.Unix()) * 1000
 
 	var region string
 	var queries []*cloudwatch.GetMetricStatisticsInput
@@ -101,7 +106,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			baq.EndTimestampMs = expiredTime.Unix() * 1000
 			q.StartTimestampMs = baq.EndTimestampMs + 1000
 			level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
-			region, queries, err = getQueryWithIndex(&baq, indexer)
+			region, queries, err = getQueryWithIndex(&baq, indexer, calcMaximumStep(queryRangeMs, &baq))
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
@@ -113,7 +118,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000+1000 {
 				aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
 			}
-			archivedResult, err := archiver.query(&aq)
+			archivedResult, err := archiver.query(&aq, calcMaximumStep(queryRangeMs, &aq), lookbackDelta)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
@@ -129,7 +134,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		var extraQueries []*cloudwatch.GetMetricStatisticsInput
 		if indexer.isExpired(endTime, []string{namespace}) {
 			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
-			region, extraQueries, err = getQueryWithoutIndex(q, indexer)
+			region, extraQueries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeMs, q))
 			queries = append(queries, extraQueries...)
 			if err != nil {
 				level.Error(logger).Log("err", err)
@@ -137,7 +142,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			}
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
-			region, extraQueries, err = getQueryWithIndex(q, indexer)
+			region, extraQueries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeMs, q))
 			queries = append(queries, extraQueries...)
 			if err != nil {
 				level.Error(logger).Log("err", err)
