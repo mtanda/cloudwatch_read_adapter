@@ -63,20 +63,24 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	result := make(resultMap)
 
 	namespace := ""
-	jobIndex := -1
+	debugMode := false
 	originalJobLabel := ""
-	for i, m := range q.Matchers {
+	matchers := make([]*prompb.LabelMatcher, 0)
+	for _, m := range q.Matchers {
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "job" {
+			originalJobLabel = m.Value
+			continue
+		}
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "debug" {
+			debugMode = true
+			continue
+		}
 		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Namespace" {
 			namespace = m.Value
 		}
-		if m.Type == prompb.LabelMatcher_EQ && m.Name == "job" {
-			jobIndex = i
-			originalJobLabel = m.Value
-		}
+		matchers = append(matchers, m)
 	}
-	if jobIndex >= 0 {
-		q.Matchers = append(q.Matchers[:jobIndex], q.Matchers[jobIndex+1:]...)
-	}
+	q.Matchers = matchers
 	if namespace == "" {
 		level.Debug(logger).Log("msg", "namespace is required")
 		return result.slice()
@@ -127,6 +131,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
+			}
+			if debugMode {
+				level.Info(logger).Log("msg", "dump archive query result", "result", fmt.Sprintf("%+v", archivedResult))
 			}
 			result.append(archivedResult)
 			q.StartTimestampMs = aq.EndTimestampMs
