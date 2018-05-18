@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awsutil"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -44,6 +45,7 @@ func init() {
 
 type Indexer struct {
 	cloudwatch           *cloudwatch.CloudWatch
+	ec2                  *ec2.EC2
 	db                   *tsdb.DB
 	region               string
 	namespace            []string
@@ -70,6 +72,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		return nil, err
 	}
 	cloudwatch := cloudwatch.New(sess, awsCfg)
+	ec2 := ec2.New(sess, awsCfg)
 
 	db, err := tsdb.Open(
 		storagePath+"/index",
@@ -96,6 +99,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 
 	return &Indexer{
 		cloudwatch:           cloudwatch,
+		ec2:                  ec2,
 		db:                   db,
 		region:               cfg.Region[0],
 		namespace:            cfg.Namespace,
@@ -160,8 +164,12 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				}
 
 				app := indexer.db.Appender()
-				indexerTargetsTotal.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
-				for _, metric := range resp.Metrics {
+				metrics, err := indexer.filterOldMetrics(namespace, resp.Metrics)
+				if err != nil {
+					continue // ignore temporary error
+				}
+				indexerTargetsTotal.WithLabelValues(namespace).Set(float64(len(metrics)))
+				for _, metric := range metrics {
 					l := make(labels.Labels, 0)
 					l = append(l, labels.Label{Name: "Region", Value: indexer.region})
 					l = append(l, labels.Label{Name: "Namespace", Value: *metric.Namespace})
@@ -188,7 +196,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					return err
 				}
 
-				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(resp.Metrics)))
+				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(metrics)))
 			}
 
 			level.Info(indexer.logger).Log("msg", "indexing completed")
@@ -274,11 +282,80 @@ func (indexer *Indexer) isIndexed(t time.Time, namespace []string) bool {
 }
 
 func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
-	t = t.Add(-indexer.interval-60*time.Second)
+	t = t.Add(-indexer.interval - 60*time.Second)
 	for _, n := range namespace {
 		if time.Unix(indexer.s.TimestampTo[n], 0).After(indexer.indexedTimestampFrom) && t.Before(indexer.indexedTimestampFrom) {
 			t = indexer.indexedTimestampFrom
 		}
 	}
 	return !indexer.isIndexed(t, namespace)
+}
+
+func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch.Metric) ([]*cloudwatch.Metric, error) {
+	filteredMetrics := make([]*cloudwatch.Metric, 0)
+	filterMap := make(map[string]bool)
+
+	switch namespace {
+	case "AWS/EC2":
+		err := indexer.ec2.DescribeInstancesPages(&ec2.DescribeInstancesInput{},
+			func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
+				for _, r := range page.Reservations {
+					for _, i := range r.Instances {
+						if *i.State.Name == "running" || *i.State.Name == "shutting-down" || *i.State.Name == "stopping" {
+							filterMap[*i.InstanceId] = true
+						} else {
+							if (*i.LaunchTime).After(time.Now().Add(-indexer.interval * 3)) {
+								filterMap[*i.InstanceId] = true
+							}
+						}
+					}
+				}
+				return !lastPage
+			})
+		if err != nil {
+			return nil, err
+		}
+		for _, metric := range metrics {
+			leave := true
+			for _, dimension := range metric.Dimensions {
+				if *dimension.Name == "InstanceId" {
+					_, leave = filterMap[*dimension.Value]
+				}
+			}
+			if leave {
+				filteredMetrics = append(filteredMetrics, metric)
+			}
+		}
+	case "AWS/EBS":
+		ctx := context.Background()
+		err := indexer.ec2.DescribeVolumesPagesWithContext(ctx, &ec2.DescribeVolumesInput{},
+			func(page *ec2.DescribeVolumesOutput, lastPage bool) bool {
+				for _, v := range page.Volumes {
+					if *v.State == "in-use" || *v.State == "deleting" {
+						filterMap[*v.VolumeId] = true
+					} else {
+						if (*v.CreateTime).After(time.Now().Add(-indexer.interval * 3)) {
+							filterMap[*v.VolumeId] = true
+						}
+					}
+				}
+				return !lastPage
+			})
+		if err != nil {
+			return nil, err
+		}
+		for _, metric := range metrics {
+			leave := true
+			for _, dimension := range metric.Dimensions {
+				if *dimension.Name == "VolumeId" {
+					_, leave = filterMap[*dimension.Value]
+				}
+			}
+			if leave {
+				filteredMetrics = append(filteredMetrics, metric)
+			}
+		}
+	}
+
+	return filteredMetrics, nil
 }
