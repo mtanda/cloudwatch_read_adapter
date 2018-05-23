@@ -41,6 +41,6 @@ func isExtendedStatistics(s string) bool {
 	return s != "Sum" && s != "SampleCount" && s != "Maximum" && s != "Minimum" && s != "Average"
 }
 
-func calcMaximumStep(queryRangeSec int64) int {
-	return int(math.Ceil(float64(queryRangeSec) / float64(PROMETHEUS_MAXIMUM_POINTS)))
+func calcMaximumStep(queryRangeSec int64) int64 {
+	return int64(math.Ceil(float64(queryRangeSec) / float64(PROMETHEUS_MAXIMUM_POINTS)))
 }

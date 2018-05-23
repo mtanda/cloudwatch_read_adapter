@@ -455,7 +455,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, error) {
+func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, error) {
 	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
@@ -469,7 +469,7 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, er
 	}
 	defer querier.Close()
 
-	step := int64(maximumStep)
+	step := maximumStep
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average

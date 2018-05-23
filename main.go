@@ -100,10 +100,6 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 	queryRangeSec := endTime.Unix() - startTime.Unix()
 
-	var region string
-	var queries []*cloudwatch.GetMetricStatisticsInput
-	var err error
-
 	// get archived result
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
 		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
@@ -115,7 +111,12 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			baq.EndTimestampMs = expiredTime.Unix() * 1000
 			q.StartTimestampMs = baq.EndTimestampMs + 1000
 			level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
-			region, queries, err = getQueryWithIndex(&baq, indexer, calcMaximumStep(queryRangeSec))
+			region, queries, err := getQueryWithIndex(&baq, indexer, calcMaximumStep(queryRangeSec))
+			if err != nil {
+				level.Error(logger).Log("err", err)
+				return result.slice()
+			}
+			err = queryCloudWatch(region, queries, q, lookbackDelta, result)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
@@ -143,47 +144,31 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 
 	// parse query
 	if q.StartTimestampMs < q.EndTimestampMs {
-		var extraQueries []*cloudwatch.GetMetricStatisticsInput
+		var region string
+		var queries []*cloudwatch.GetMetricStatisticsInput
+		var err error
 		if indexer.isExpired(endTime, []string{namespace}) {
 			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
-			region, extraQueries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeSec))
-			queries = append(queries, extraQueries...)
+			region, queries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeSec))
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
 			}
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
-			region, extraQueries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeSec))
-			queries = append(queries, extraQueries...)
+			region, queries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeSec))
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
 			}
 		}
-	}
-
-	if len(queries) > 400 {
-		level.Warn(logger).Log("msg", "Too many concurrent queries")
-		return result.slice()
-	}
-
-	cfg := &aws.Config{Region: aws.String(region)}
-	sess, err := session.NewSession(cfg)
-	if err != nil {
-		level.Error(logger).Log("err", err)
-		return result.slice()
-	}
-	svc := cloudwatch.New(sess, cfg)
-
-	for _, query := range queries {
-		cwResult, err := queryCloudWatchGetMetricStatistics(svc, region, query, q, lookbackDelta)
+		err = queryCloudWatch(region, queries, q, lookbackDelta, result)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return result.slice()
 		}
-		result.append(cwResult)
 	}
+
 	if originalJobLabel != "" {
 		for _, ts := range result {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
