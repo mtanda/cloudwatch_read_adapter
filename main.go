@@ -177,7 +177,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	svc := cloudwatch.New(sess, cfg)
 
 	for _, query := range queries {
-		cwResult, err := queryCloudWatch(svc, region, query, q, lookbackDelta)
+		cwResult, err := queryCloudWatchGetMetricStatistics(svc, region, query, q, lookbackDelta)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return result.slice()

@@ -163,7 +163,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int) (stri
 	return region, queries, nil
 }
 
-func queryCloudWatch(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
+func queryCloudWatchGetMetricStatistics(svc *cloudwatch.CloudWatch, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 
 	if query.Namespace == nil || query.MetricName == nil {
