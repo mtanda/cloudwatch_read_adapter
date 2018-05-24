@@ -163,7 +163,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		}
 	}
 
-	if len(queries) > 300 {
+	if len(queries) > 400 {
 		level.Warn(logger).Log("msg", "Too many concurrent queries")
 		return result.slice()
 	}
