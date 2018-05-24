@@ -355,6 +355,8 @@ func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch
 				filteredMetrics = append(filteredMetrics, metric)
 			}
 		}
+	default:
+		filteredMetrics = metrics
 	}
 
 	return filteredMetrics, nil
