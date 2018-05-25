@@ -12,9 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -151,28 +148,6 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
 
 	return result.slice()
-}
-
-func GetDefaultRegion() (string, error) {
-	var region string
-
-	metadata := ec2metadata.New(session.New(), &aws.Config{
-		MaxRetries: aws.Int(0),
-	})
-	if metadata.Available() {
-		var err error
-		region, err = metadata.Region()
-		if err != nil {
-			return "", err
-		}
-	} else {
-		region = os.Getenv("AWS_REGION")
-		if region == "" {
-			region = "us-east-1"
-		}
-	}
-
-	return region, nil
 }
 
 func main() {

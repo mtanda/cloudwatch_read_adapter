@@ -3,7 +3,11 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/tsdb/labels"
 )
@@ -43,6 +47,28 @@ func isExtendedStatistics(s string) bool {
 
 func calcMaximumStep(queryRangeSec int64) int64 {
 	return int64(math.Ceil(float64(queryRangeSec) / float64(PROMETHEUS_MAXIMUM_POINTS)))
+}
+
+func GetDefaultRegion() (string, error) {
+	var region string
+
+	metadata := ec2metadata.New(session.New(), &aws.Config{
+		MaxRetries: aws.Int(0),
+	})
+	if metadata.Available() {
+		var err error
+		region, err = metadata.Region()
+		if err != nil {
+			return "", err
+		}
+	} else {
+		region = os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "us-east-1"
+		}
+	}
+
+	return region, nil
 }
 
 type resultMap map[string]*prompb.TimeSeries
