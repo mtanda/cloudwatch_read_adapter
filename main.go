@@ -127,17 +127,13 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		if indexer.isExpired(endTime, []string{namespace}) {
 			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
 			region, queries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeSec))
-			if err != nil {
-				level.Error(logger).Log("err", err)
-				return result.slice()
-			}
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
 			region, queries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeSec))
-			if err != nil {
-				level.Error(logger).Log("err", err)
-				return result.slice()
-			}
+		}
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			return result.slice()
 		}
 		err = queryCloudWatch(region, queries, q, lookbackDelta, result)
 		if err != nil {
