@@ -137,6 +137,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			level.Error(logger).Log("err", err)
 			return result.slice()
 		}
+		if debugMode {
+			level.Info(logger).Log("msg", "dump query result", "result", fmt.Sprintf("%+v", result))
+		}
 	}
 
 	if originalJobLabel != "" {
