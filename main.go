@@ -85,7 +85,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				level.Error(logger).Log("err", err)
 				return result.slice()
 			}
-			err = queryCloudWatch(region, queries, q, lookbackDelta, result)
+			err = queryCloudWatch(region, queries, &baq, lookbackDelta, result)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
