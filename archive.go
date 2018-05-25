@@ -231,8 +231,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := (*appenders[lastNamespace]).Commit(); err != nil {
 									return err
 								}
-								appenders[lastNamespace] = nil // release appender
-								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
+								appenders[lastNamespace] = nil                                                                 // release appender
+								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
@@ -251,8 +251,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := (*appenders[lastNamespace]).Commit(); err != nil {
 									return err
 								}
-								appenders[lastNamespace] = nil // release appender
-								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
+								appenders[lastNamespace] = nil                                                                 // release appender
+								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
 								if err := archiver.saveState(); err != nil {
 									return err
 								}
