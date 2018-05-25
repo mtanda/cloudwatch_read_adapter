@@ -496,7 +496,7 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, 
 		t, v := int64(0), float64(0)
 		it := s.Iterator()
 		refTime := q.StartTimestampMs
-		for it.Next() && refTime < q.EndTimestampMs {
+		for it.Next() && refTime <= q.EndTimestampMs {
 			lastTimestamp = t
 			lastValue = v
 			t, v = it.At()
