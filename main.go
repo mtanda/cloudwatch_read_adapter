@@ -77,7 +77,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 	queryRangeSec := endTime.Unix() - startTime.Unix()
 
-	// get archived result
+	// get time series from past(archived) time range
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
 		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
 			expiredTime := time.Now().Add(-archiver.retention)
@@ -119,7 +119,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		}
 	}
 
-	// parse query
+	// get time series from recent time range
 	if q.StartTimestampMs < q.EndTimestampMs {
 		var region string
 		var queries []*cloudwatch.GetMetricStatisticsInput
