@@ -100,11 +100,12 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			}
 		}
 		if q.StartTimestampMs < q.EndTimestampMs {
-			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
 			aq := *q
 			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000 {
 				aq.EndTimestampMs = archiver.s.Timestamp[namespace] * 1000 // tsdb query maxt is inclusive
 			}
+			q.StartTimestampMs = aq.EndTimestampMs
+			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
 			archivedResult, err := archiver.query(&aq, calcMaximumStep(queryRangeSec))
 			if err != nil {
 				level.Error(logger).Log("err", err)
@@ -113,9 +114,8 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if debugMode {
 				level.Info(logger).Log("msg", "dump archive query result", "result", fmt.Sprintf("%+v", archivedResult))
 			}
+			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(archivedResult)))
 			result.append(archivedResult)
-			q.StartTimestampMs = aq.EndTimestampMs
-			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
 		}
 	}
 
