@@ -36,29 +36,6 @@ type config struct {
 	storagePath string
 }
 
-type resultMap map[string]*prompb.TimeSeries
-
-func (x resultMap) append(y resultMap) {
-	for id, yts := range y {
-		if xts, ok := x[id]; ok {
-			if (len(xts.Samples) > 0 && len(yts.Samples) > 0) && xts.Samples[0].Timestamp < yts.Samples[0].Timestamp {
-				xts.Samples = append(xts.Samples, yts.Samples...)
-			} else {
-				xts.Samples = append(yts.Samples, xts.Samples...)
-			}
-		} else {
-			x[id] = yts
-		}
-	}
-}
-func (x resultMap) slice() []*prompb.TimeSeries {
-	s := []*prompb.TimeSeries{}
-	for _, v := range x {
-		s = append(s, v)
-	}
-	return s
-}
-
 func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDelta time.Duration, logger log.Logger) []*prompb.TimeSeries {
 	result := make(resultMap)
 
