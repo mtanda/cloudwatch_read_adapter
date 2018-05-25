@@ -552,7 +552,7 @@ func (archiver *Archiver) isArchived(t time.Time, namespace []string) bool {
 }
 
 func (archiver *Archiver) isExpired(t time.Time) bool {
-	expiredTime := time.Now().Add(-archiver.retention)
+	expiredTime := time.Now().UTC().Add(-archiver.retention)
 	if t.After(expiredTime) {
 		return false
 	}

@@ -77,7 +77,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	// get time series from past(archived) time range
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
 		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
-			expiredTime := time.Now().Add(-archiver.retention)
+			expiredTime := time.Now().UTC().Add(-archiver.retention)
 			if endTime.Before(expiredTime) {
 				expiredTime = endTime
 			}
