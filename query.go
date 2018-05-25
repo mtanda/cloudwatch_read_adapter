@@ -58,6 +58,7 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 			if err != nil {
 				return region, queries, err
 			}
+			maximumStep = int64(math.Max(float64(maximumStep), float64(60)))
 			if v < maximumStep {
 				v = maximumStep
 			}
@@ -147,6 +148,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 					if err != nil {
 						return region, queries, err
 					}
+					maximumStep = int64(math.Max(float64(maximumStep), float64(60)))
 					if v < maximumStep {
 						v = maximumStep
 					}
