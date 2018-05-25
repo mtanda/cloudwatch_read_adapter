@@ -505,13 +505,13 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, 
 			}
 			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
 				ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-				if (t - lastTimestamp) > (step * 1000) {
+				if step > 60 && (t-lastTimestamp) > (step*1000) {
 					ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 				}
 			}
 		}
 		ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-		if (q.EndTimestampMs > lastTimestamp) && (lastTimestamp > (q.EndTimestampMs - (step * 1000))) {
+		if step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp > (q.EndTimestampMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 

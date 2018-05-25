@@ -328,14 +328,14 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 				value = *dp.ExtendedStatistics[*s]
 			}
 			ts := tsm[*s]
-			if !lastTimestamp.IsZero() && lastTimestamp.Add(time.Duration(*query.Period)*time.Second).Before(*dp.Timestamp) {
+			if *query.Period > 60 && !lastTimestamp.IsZero() && lastTimestamp.Add(time.Duration(*query.Period)*time.Second).Before(*dp.Timestamp) {
 				ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
 			}
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: value, Timestamp: dp.Timestamp.Unix() * 1000})
 		}
 		lastTimestamp = *dp.Timestamp
 	}
-	if !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) && lastTimestamp.Before(time.Now().Add(-lookbackDelta)) {
+	if *query.Period > 60 && !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) && lastTimestamp.Before(time.Now().Add(-lookbackDelta)) {
 		for _, s := range paramStatistics {
 			ts := tsm[*s]
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
@@ -461,6 +461,9 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 			ts := tsm[*r.Id]
 			for i, t := range r.Timestamps {
 				ts.Samples = append(ts.Samples, &prompb.Sample{Value: *r.Values[i], Timestamp: t.Unix() * 1000})
+				if period <= 60 {
+					continue
+				}
 				if i != len(r.Timestamps) && i != 0 {
 					lastTimestamp := r.Timestamps[i-1]
 					if lastTimestamp.Add(time.Duration(period) * time.Second).Before(*r.Timestamps[i]) {
