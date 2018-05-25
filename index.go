@@ -304,7 +304,7 @@ func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch
 						if *i.State.Name == "running" || *i.State.Name == "shutting-down" || *i.State.Name == "stopping" {
 							filterMap[*i.InstanceId] = true
 						} else {
-							if (*i.LaunchTime).After(time.Now().Add(-indexer.interval * 3)) {
+							if (*i.LaunchTime).After(time.Now().UTC().Add(-indexer.interval * 3)) {
 								filterMap[*i.InstanceId] = true
 							}
 						}
@@ -334,7 +334,7 @@ func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch
 					if *v.State == "in-use" || *v.State == "deleting" {
 						filterMap[*v.VolumeId] = true
 					} else {
-						if (*v.CreateTime).After(time.Now().Add(-indexer.interval * 3)) {
+						if (*v.CreateTime).After(time.Now().UTC().Add(-indexer.interval * 3)) {
 							filterMap[*v.VolumeId] = true
 						}
 					}

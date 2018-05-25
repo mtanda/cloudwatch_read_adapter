@@ -231,8 +231,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := (*appenders[lastNamespace]).Commit(); err != nil {
 									return err
 								}
-								appenders[lastNamespace] = nil // release appender
-								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
+								appenders[lastNamespace] = nil                                                                 // release appender
+								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
@@ -251,8 +251,8 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								if err := (*appenders[lastNamespace]).Commit(); err != nil {
 									return err
 								}
-								appenders[lastNamespace] = nil // release appender
-								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix()
+								appenders[lastNamespace] = nil                                                                 // release appender
+								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
 								if err := archiver.saveState(); err != nil {
 									return err
 								}
@@ -455,7 +455,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, error) {
+func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, error) {
 	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
@@ -469,7 +469,7 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, er
 	}
 	defer querier.Close()
 
-	step := int64(maximumStep)
+	step := maximumStep
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average
@@ -496,7 +496,7 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, er
 		t, v := int64(0), float64(0)
 		it := s.Iterator()
 		refTime := q.StartTimestampMs
-		for it.Next() && refTime < q.EndTimestampMs {
+		for it.Next() && refTime <= q.EndTimestampMs {
 			lastTimestamp = t
 			lastValue = v
 			t, v = it.At()
@@ -505,13 +505,13 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int) (resultMap, er
 			}
 			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
 				ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-				if (t - lastTimestamp) > (step * 1000) {
+				if step > 60 && (t-lastTimestamp) > (step*1000) {
 					ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 				}
 			}
 		}
-		if (q.EndTimestampMs > lastTimestamp) && (lastTimestamp > (q.EndTimestampMs - (step * 1000))) {
-			ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+		ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+		if step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp > (q.EndTimestampMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 
@@ -552,7 +552,7 @@ func (archiver *Archiver) isArchived(t time.Time, namespace []string) bool {
 }
 
 func (archiver *Archiver) isExpired(t time.Time) bool {
-	expiredTime := time.Now().Add(-archiver.retention)
+	expiredTime := time.Now().UTC().Add(-archiver.retention)
 	if t.After(expiredTime) {
 		return false
 	}

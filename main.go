@@ -12,9 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -34,29 +31,6 @@ type config struct {
 	listenAddr  string
 	configFile  string
 	storagePath string
-}
-
-type resultMap map[string]*prompb.TimeSeries
-
-func (x resultMap) append(y resultMap) {
-	for id, yts := range y {
-		if xts, ok := x[id]; ok {
-			if (len(xts.Samples) > 0 && len(yts.Samples) > 0) && xts.Samples[0].Timestamp < yts.Samples[0].Timestamp {
-				xts.Samples = append(xts.Samples, yts.Samples...)
-			} else {
-				xts.Samples = append(yts.Samples, xts.Samples...)
-			}
-		} else {
-			x[id] = yts
-		}
-	}
-}
-func (x resultMap) slice() []*prompb.TimeSeries {
-	s := []*prompb.TimeSeries{}
-	for _, v := range x {
-		s = append(s, v)
-	}
-	return s
 }
 
 func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDelta time.Duration, logger log.Logger) []*prompb.TimeSeries {
@@ -86,11 +60,6 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		return result.slice()
 	}
 
-	// workaround, align query range to Prometheus original query range
-	lookbackDeltaMs := lookbackDelta.Nanoseconds() / 1000 / 1000
-	if (q.EndTimestampMs - q.StartTimestampMs) > lookbackDeltaMs*2 {
-		q.StartTimestampMs += lookbackDeltaMs
-	}
 	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
 	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	now := time.Now().UTC()
@@ -100,14 +69,10 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 	queryRangeSec := endTime.Unix() - startTime.Unix()
 
-	var region string
-	var queries []*cloudwatch.GetMetricStatisticsInput
-	var err error
-
-	// get archived result
+	// get time series from past(archived) time range
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
 		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
-			expiredTime := time.Now().Add(-archiver.retention)
+			expiredTime := time.Now().UTC().Add(-archiver.retention)
 			if endTime.Before(expiredTime) {
 				expiredTime = endTime
 			}
@@ -115,18 +80,24 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			baq.EndTimestampMs = expiredTime.Unix() * 1000
 			q.StartTimestampMs = baq.EndTimestampMs + 1000
 			level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
-			region, queries, err = getQueryWithIndex(&baq, indexer, calcMaximumStep(queryRangeSec))
+			region, queries, err := getQueryWithIndex(&baq, indexer, calcMaximumStep(queryRangeSec))
+			if err != nil {
+				level.Error(logger).Log("err", err)
+				return result.slice()
+			}
+			err = queryCloudWatch(region, queries, &baq, lookbackDelta, result)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
 			}
 		}
 		if q.StartTimestampMs < q.EndTimestampMs {
-			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", q))
 			aq := *q
-			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000+1000 {
-				aq.EndTimestampMs = archiver.s.Timestamp[namespace]*1000 + 1000 // add 1 second
+			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000 {
+				aq.EndTimestampMs = archiver.s.Timestamp[namespace] * 1000 // tsdb query maxt is inclusive
 			}
+			q.StartTimestampMs = aq.EndTimestampMs
+			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
 			archivedResult, err := archiver.query(&aq, calcMaximumStep(queryRangeSec))
 			if err != nil {
 				level.Error(logger).Log("err", err)
@@ -135,55 +106,37 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if debugMode {
 				level.Info(logger).Log("msg", "dump archive query result", "result", fmt.Sprintf("%+v", archivedResult))
 			}
+			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(archivedResult)))
 			result.append(archivedResult)
-			q.StartTimestampMs = aq.EndTimestampMs
-			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(result)))
 		}
 	}
 
-	// parse query
+	// get time series from recent time range
 	if q.StartTimestampMs < q.EndTimestampMs {
-		var extraQueries []*cloudwatch.GetMetricStatisticsInput
+		var region string
+		var queries []*cloudwatch.GetMetricStatisticsInput
+		var err error
 		if indexer.isExpired(endTime, []string{namespace}) {
 			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
-			region, extraQueries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeSec))
-			queries = append(queries, extraQueries...)
-			if err != nil {
-				level.Error(logger).Log("err", err)
-				return result.slice()
-			}
+			region, queries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeSec))
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
-			region, extraQueries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeSec))
-			queries = append(queries, extraQueries...)
-			if err != nil {
-				level.Error(logger).Log("err", err)
-				return result.slice()
-			}
+			region, queries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeSec))
 		}
-	}
-
-	if len(queries) > 400 {
-		level.Warn(logger).Log("msg", "Too many concurrent queries")
-		return result.slice()
-	}
-
-	cfg := &aws.Config{Region: aws.String(region)}
-	sess, err := session.NewSession(cfg)
-	if err != nil {
-		level.Error(logger).Log("err", err)
-		return result.slice()
-	}
-	svc := cloudwatch.New(sess, cfg)
-
-	for _, query := range queries {
-		cwResult, err := queryCloudWatch(svc, region, query, q, lookbackDelta)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return result.slice()
 		}
-		result.append(cwResult)
+		err = queryCloudWatch(region, queries, q, lookbackDelta, result)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			return result.slice()
+		}
+		if debugMode {
+			level.Info(logger).Log("msg", "dump query result", "result", fmt.Sprintf("%+v", result))
+		}
 	}
+
 	if originalJobLabel != "" {
 		for _, ts := range result {
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
@@ -193,28 +146,6 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
 
 	return result.slice()
-}
-
-func GetDefaultRegion() (string, error) {
-	var region string
-
-	metadata := ec2metadata.New(session.New(), &aws.Config{
-		MaxRetries: aws.Int(0),
-	})
-	if metadata.Available() {
-		var err error
-		region, err = metadata.Region()
-		if err != nil {
-			return "", err
-		}
-	} else {
-		region = os.Getenv("AWS_REGION")
-		if region == "" {
-			region = "us-east-1"
-		}
-	}
-
-	return region, nil
 }
 
 func main() {
