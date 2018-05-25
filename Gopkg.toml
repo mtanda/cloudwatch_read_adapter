@@ -18,4 +18,4 @@ required = ["github.com/grpc-ecosystem/grpc-gateway/runtime"]
 
 [[constraint]]
   name = "github.com/aws/aws-sdk-go"
-  version = "v1.13.32"
+  version = "v1.13.35"
