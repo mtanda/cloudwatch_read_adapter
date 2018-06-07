@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awsutil"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
@@ -46,6 +47,7 @@ func init() {
 type Indexer struct {
 	cloudwatch           *cloudwatch.CloudWatch
 	ec2                  *ec2.EC2
+	dynamodb             *dynamodb.DynamoDB
 	db                   *tsdb.DB
 	region               string
 	namespace            []string
@@ -73,6 +75,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 	}
 	cloudwatch := cloudwatch.New(sess, awsCfg)
 	ec2 := ec2.New(sess, awsCfg)
+	dynamodb := dynamodb.New(sess, awsCfg)
 
 	db, err := tsdb.Open(
 		storagePath+"/index",
@@ -100,6 +103,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 	return &Indexer{
 		cloudwatch:           cloudwatch,
 		ec2:                  ec2,
+		dynamodb:             dynamodb,
 		db:                   db,
 		region:               cfg.Region[0],
 		namespace:            cfg.Namespace,
@@ -348,6 +352,28 @@ func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch
 			leave := true
 			for _, dimension := range metric.Dimensions {
 				if *dimension.Name == "VolumeId" {
+					_, leave = filterMap[*dimension.Value]
+				}
+			}
+			if leave {
+				filteredMetrics = append(filteredMetrics, metric)
+			}
+		}
+	case "AWS/DynamoDB":
+		err := indexer.dynamodb.ListTablesPages(&dynamodb.ListTablesInput{},
+			func(page *dynamodb.ListTablesOutput, lastPage bool) bool {
+				for _, v := range page.TableNames {
+					filterMap[*v] = true
+				}
+				return !lastPage
+			})
+		if err != nil {
+			return nil, err
+		}
+		for _, metric := range metrics {
+			leave := true
+			for _, dimension := range metric.Dimensions {
+				if *dimension.Name == "TableName" {
 					_, leave = filterMap[*dimension.Value]
 				}
 			}
