@@ -87,7 +87,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		q.EndTimestampMs = now.Unix() * 1000
 		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	}
-	queryRangeSec := endTime.Unix() - startTime.Unix()
+	maximumStep := q.Hints.StepMs / 1000
 
 	// get time series from past(archived) time range
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
@@ -100,7 +100,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			baq.EndTimestampMs = expiredTime.Unix() * 1000
 			q.StartTimestampMs = baq.EndTimestampMs + 1000
 			level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
-			region, queries, err := getQueryWithIndex(&baq, indexer, calcMaximumStep(queryRangeSec))
+			region, queries, err := getQueryWithIndex(&baq, indexer, maximumStep)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
@@ -118,7 +118,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			}
 			q.StartTimestampMs = aq.EndTimestampMs
 			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
-			archivedResult, err := archiver.query(&aq, calcMaximumStep(queryRangeSec))
+			archivedResult, err := archiver.query(&aq, maximumStep)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return result.slice()
@@ -138,10 +138,10 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		var err error
 		if indexer.isExpired(endTime, []string{namespace}) {
 			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
-			region, queries, err = getQueryWithoutIndex(q, indexer, calcMaximumStep(queryRangeSec))
+			region, queries, err = getQueryWithoutIndex(q, indexer, maximumStep)
 		} else {
 			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
-			region, queries, err = getQueryWithIndex(q, indexer, calcMaximumStep(queryRangeSec))
+			region, queries, err = getQueryWithIndex(q, indexer, maximumStep)
 		}
 		if err != nil {
 			level.Error(logger).Log("err", err)
