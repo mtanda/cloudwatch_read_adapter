@@ -10,11 +10,11 @@ required = ["github.com/grpc-ecosystem/grpc-gateway/runtime"]
 
 [[constraint]]
   name = "github.com/prometheus/tsdb"
-  revision = "659ed644294eec6310cef0685b002a3aed8c8f85"
+  revision = "c848349f07c83bd38d5d19faa5ea71c7fd8923ea"
 
 [[constraint]]
   name = "github.com/prometheus/prometheus"
-  version = "v2.2.1"
+  version = "v2.3.0"
 
 [[constraint]]
   name = "github.com/aws/aws-sdk-go"
