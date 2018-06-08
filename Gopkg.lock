@@ -25,11 +25,14 @@
     "internal/shareddefaults",
     "private/protocol",
     "private/protocol/ec2query",
+    "private/protocol/json/jsonutil",
+    "private/protocol/jsonrpc",
     "private/protocol/query",
     "private/protocol/query/queryutil",
     "private/protocol/rest",
     "private/protocol/xml/xmlutil",
     "service/cloudwatch",
+    "service/dynamodb",
     "service/ec2",
     "service/sts"
   ]
@@ -136,12 +139,6 @@
   version = "v1.0.0"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/nightlyone/lockfile"
-  packages = ["."]
-  revision = "6a197d5ea61168f2ac821de2b7f011b250904900"
-
-[[projects]]
   name = "github.com/oklog/ulid"
   packages = ["."]
   revision = "d311cb43c92434ec4072dfbbda3400741d0a6337"
@@ -193,8 +190,8 @@
     "pkg/value",
     "prompb"
   ]
-  revision = "bc6058c81272a8d938c05e75607371284236aadc"
-  version = "v2.2.1"
+  revision = "290d71791a507a5057b9a099c9d48703d86dc941"
+  version = "v2.3.0"
 
 [[projects]]
   name = "github.com/prometheus/tsdb"
@@ -206,7 +203,7 @@
     "index",
     "labels"
   ]
-  revision = "659ed644294eec6310cef0685b002a3aed8c8f85"
+  revision = "c848349f07c83bd38d5d19faa5ea71c7fd8923ea"
 
 [[projects]]
   branch = "master"
@@ -304,6 +301,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3dee3e6173735aee4bd05b5a4b4322d276cfe950d6e78daf8538948286e8d2c4"
+  inputs-digest = "5537435c2b11ee506f5948e0098826b5f53f8049736d4150183f6101a6f63978"
   solver-name = "gps-cdcl"
   solver-version = 1

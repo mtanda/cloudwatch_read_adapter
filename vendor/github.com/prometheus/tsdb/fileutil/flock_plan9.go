@@ -1,9 +1,9 @@
-// Copyright 2013 The Prometheus Authors
+// Copyright 2016 The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-// http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -11,21 +11,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package yaml
+package fileutil
 
-import (
-	"fmt"
-	"strings"
-)
+import "os"
 
-// CheckOverflow checks for unknown config params and raises an error if found
-func CheckOverflow(m map[string]interface{}, ctx string) error {
-	if len(m) > 0 {
-		var keys []string
-		for k := range m {
-			keys = append(keys, k)
-		}
-		return fmt.Errorf("unknown fields in %s: %s", ctx, strings.Join(keys, ", "))
+type plan9Lock struct {
+	f *os.File
+}
+
+func (l *plan9Lock) Release() error {
+	return l.f.Close()
+}
+
+func newLock(fileName string) (Releaser, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, os.ModeExclusive|0644)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return &plan9Lock{f}, nil
 }

@@ -86,16 +86,22 @@ func ToWriteRequest(samples []*model.Sample) *prompb.WriteRequest {
 }
 
 // ToQuery builds a Query proto.
-func ToQuery(from, to int64, matchers []*labels.Matcher) (*prompb.Query, error) {
+func ToQuery(from, to int64, matchers []*labels.Matcher, p *storage.SelectParams) (*prompb.Query, error) {
 	ms, err := toLabelMatchers(matchers)
 	if err != nil {
 		return nil, err
+	}
+
+	rp := &prompb.ReadHints{
+		StepMs: p.Step,
+		Func:   p.Func,
 	}
 
 	return &prompb.Query{
 		StartTimestampMs: from,
 		EndTimestampMs:   to,
 		Matchers:         ms,
+		Hints:            rp,
 	}, nil
 }
 
@@ -200,7 +206,7 @@ func (c *concreteSeriesSet) Err() error {
 	return nil
 }
 
-// concreteSeries implementes storage.Series.
+// concreteSeries implements storage.Series.
 type concreteSeries struct {
 	labels  labels.Labels
 	samples []*prompb.Sample
