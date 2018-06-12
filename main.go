@@ -55,8 +55,28 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		matchers = append(matchers, m)
 	}
 	q.Matchers = matchers
+
+	// return label name/value list for query editor
 	if namespace == "" {
-		level.Debug(logger).Log("msg", "namespace is required")
+		m, err := fromLabelMatchers(q.Matchers)
+		if err != nil {
+			return result.slice()
+		}
+		matchedLabelsList, err := indexer.getMatchedLables(m, q.StartTimestampMs, q.EndTimestampMs)
+		if err != nil {
+			return result.slice()
+		}
+		for i, matchedLabels := range matchedLabelsList {
+			ts := &prompb.TimeSeries{}
+			for _, label := range matchedLabels {
+				ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
+			}
+			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
+			t := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+			ts.Samples = append(ts.Samples, &prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
+			result[string(i)] = ts
+		}
+		//level.Debug(logger).Log("msg", "namespace is required")
 		return result.slice()
 	}
 
