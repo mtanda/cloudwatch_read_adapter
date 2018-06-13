@@ -37,6 +37,7 @@ var (
 		},
 		[]string{"namespace"},
 	)
+	metricNameMap = make(map[string]prometheus.Gauge)
 )
 
 func init() {
@@ -187,6 +188,17 @@ func (indexer *Indexer) index(ctx context.Context) error {
 						return err
 					}
 					_ = ref
+
+					if _, ok := metricNameMap[*metric.MetricName]; !ok {
+						metricNameMap[*metric.MetricName] = prometheus.NewGauge(
+							prometheus.GaugeOpts{
+								Name: *metric.MetricName,
+								Help: *metric.MetricName,
+							},
+						)
+						prometheus.MustRegister(metricNameMap[*metric.MetricName])
+						metricNameMap[*metric.MetricName].Set(float64(0))
+					}
 				}
 
 				if err := app.Commit(); err != nil {
