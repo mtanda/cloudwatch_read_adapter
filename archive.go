@@ -302,9 +302,9 @@ func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.
 	var matchedLabelsList []labels.Labels
 	var err error
 	if archiver.indexer.isIndexed(endTime, []string{namespace}) {
-		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, endTime.Unix()*1000)
+		matchedLabelsList, err = archiver.indexer.getMatchedLabels(matchers, startTime.Unix()*1000, endTime.Unix()*1000)
 	} else {
-		matchedLabelsList, err = archiver.indexer.getMatchedLables(matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo[namespace]*1000)
+		matchedLabelsList, err = archiver.indexer.getMatchedLabels(matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo[namespace]*1000)
 	}
 
 	return matchedLabelsList, err

@@ -224,7 +224,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 	}
 }
 
-func (indexer *Indexer) getMatchedLables(matchers []labels.Matcher, start int64, end int64) ([]labels.Labels, error) {
+func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64, end int64) ([]labels.Labels, error) {
 	matchedLabels := make([]labels.Labels, 0)
 
 	querier, err := indexer.db.Querier(start, end)

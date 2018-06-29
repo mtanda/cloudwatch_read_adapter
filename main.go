@@ -62,7 +62,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		if err != nil {
 			return result.slice()
 		}
-		matchedLabelsList, err := indexer.getMatchedLables(m, q.StartTimestampMs, q.EndTimestampMs)
+		matchedLabelsList, err := indexer.getMatchedLabels(m, q.StartTimestampMs, q.EndTimestampMs)
 		if err != nil {
 			return result.slice()
 		}

@@ -101,7 +101,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 		// expand enough long period to match index
 		iq.StartTimestampMs = time.Unix(q.EndTimestampMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
 	}
-	matchedLabelsList, err := indexer.getMatchedLables(matchers, iq.StartTimestampMs, q.EndTimestampMs)
+	matchedLabelsList, err := indexer.getMatchedLabels(matchers, iq.StartTimestampMs, q.EndTimestampMs)
 	if err != nil {
 		return region, queries, err
 	}
