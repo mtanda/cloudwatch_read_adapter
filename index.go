@@ -233,13 +233,41 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 	}
 	defer querier.Close()
 
+	dimensions := make(map[string]bool)
+	for _, matcher := range matchers {
+		name := matcher.Name()
+		if name == "Region" || name == "Namespace" || name == "__name__" {
+			continue
+		}
+		dimensions[name] = true
+	}
+
 	ss, err := querier.Select(matchers...)
 	if err != nil {
 		return nil, err
 	}
 	for ss.Next() {
 		s := ss.At()
-		matchedLabels = append(matchedLabels, s.Labels())
+		_labels := s.Labels()
+
+		// filter labels which has extra dimensions
+		if len(dimensions) != 0 {
+			hasExtraDimensions := false
+			for _, label := range _labels {
+				name := label.Name
+				if name == "Region" || name == "Namespace" || name == "__name__" {
+					continue
+				}
+				if _, ok := dimensions[name]; !ok {
+					hasExtraDimensions = true
+				}
+			}
+			if hasExtraDimensions {
+				continue
+			}
+		}
+
+		matchedLabels = append(matchedLabels, _labels)
 	}
 
 	return matchedLabels, nil
