@@ -178,7 +178,8 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					l := make(labels.Labels, 0)
 					l = append(l, labels.Label{Name: "Region", Value: indexer.region})
 					l = append(l, labels.Label{Name: "Namespace", Value: *metric.Namespace})
-					l = append(l, labels.Label{Name: "__name__", Value: *metric.MetricName})
+					l = append(l, labels.Label{Name: "MetricName", Value: *metric.MetricName})
+					l = append(l, labels.Label{Name: "__name__", Value: SafeMetricName(*metric.MetricName)})
 					for _, dimension := range metric.Dimensions {
 						l = append(l, labels.Label{Name: *dimension.Name, Value: *dimension.Value})
 					}
@@ -192,7 +193,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					if _, ok := metricNameMap[*metric.MetricName]; !ok {
 						metricNameMap[*metric.MetricName] = prometheus.NewGauge(
 							prometheus.GaugeOpts{
-								Name: *metric.MetricName,
+								Name: SafeMetricName(*metric.MetricName),
 								Help: *metric.MetricName,
 							},
 						)
@@ -236,7 +237,7 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 	dimensions := make(map[string]bool)
 	for _, matcher := range matchers {
 		name := matcher.Name()
-		if name == "Region" || name == "Namespace" || name == "__name__" {
+		if name == "Region" || name == "Namespace" || name == "MetricName" || name == "__name__" {
 			continue
 		}
 		dimensions[name] = true
@@ -255,7 +256,7 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 			hasExtraDimensions := false
 			for _, label := range _labels {
 				name := label.Name
-				if name == "Region" || name == "Namespace" || name == "__name__" {
+				if name == "Region" || name == "Namespace" || name == "MetricName" || name == "__name__" {
 					continue
 				}
 				if _, ok := dimensions[name]; !ok {
@@ -265,6 +266,15 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 			if hasExtraDimensions {
 				continue
 			}
+		}
+		hasMetricName := false
+		for _, label := range _labels {
+			if label.Name == "MetricName" {
+				hasMetricName = true
+			}
+		}
+		if !hasMetricName {
+			continue
 		}
 
 		matchedLabels = append(matchedLabels, _labels)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
@@ -10,6 +11,8 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/tsdb/labels"
 )
+
+var invalidMetricNamePattern = regexp.MustCompile(`[^a-zA-Z0-9:_]`)
 
 func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]labels.Matcher, error) {
 	result := make([]labels.Matcher, 0, len(matchers))
@@ -64,6 +67,14 @@ func GetDefaultRegion() (string, error) {
 	}
 
 	return region, nil
+}
+
+func SafeMetricName(name string) string {
+	name = invalidMetricNamePattern.ReplaceAllString(name, "_")
+	if '0' <= name[0] && name[0] <= '9' {
+		name = "_" + name
+	}
+	return name
 }
 
 type resultMap map[string]*prompb.TimeSeries
