@@ -1,5 +1,9 @@
 required = ["github.com/grpc-ecosystem/grpc-gateway/runtime"]
 
+[prune]
+  go-tests = true
+  unused-packages = true
+
 [[constraint]]
   name = "github.com/grpc-ecosystem/grpc-gateway"
   version = "=v1.3"
