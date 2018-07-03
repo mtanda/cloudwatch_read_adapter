@@ -319,12 +319,15 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 	for _, period := range []int{timeAlignment, 300} {
 		params = &cloudwatch.GetMetricStatisticsInput{}
 		for _, label := range _labels {
+			oldMetricName := ""
 			switch label.Name {
+			case "__name__":
+				oldMetricName = label.Value
 			case "Region":
 				// ignore // TODO: support multiple region?
 			case "Namespace":
 				params.Namespace = aws.String(label.Value)
-			case "__name__":
+			case "MetricName":
 				params.MetricName = aws.String(label.Value)
 			default:
 				if params.Dimensions == nil {
@@ -334,6 +337,9 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 					Name:  aws.String(label.Name),
 					Value: aws.String(label.Value),
 				})
+			}
+			if params.MetricName == nil {
+				params.MetricName = aws.String(oldMetricName) // backward compatibility
 			}
 		}
 		params.Statistics = archiver.statistics
@@ -396,7 +402,8 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 			l := make(labels.Labels, 0)
 			l = append(l, labels.Label{Name: "Region", Value: archiver.region})
 			l = append(l, labels.Label{Name: "Namespace", Value: *params.Namespace})
-			l = append(l, labels.Label{Name: "__name__", Value: *params.MetricName})
+			l = append(l, labels.Label{Name: "MetricName", Value: *params.MetricName})
+			l = append(l, labels.Label{Name: "__name__", Value: SafeMetricName(*params.MetricName)})
 			for _, dimension := range params.Dimensions {
 				l = append(l, labels.Label{Name: *dimension.Name, Value: *dimension.Value})
 			}
@@ -487,6 +494,9 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, 
 		})
 		id := ""
 		for _, label := range labels {
+			if label.Name == "MetricName" {
+				continue
+			}
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
 			id = id + label.Name + label.Value
 		}

@@ -70,6 +70,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		for i, matchedLabels := range matchedLabelsList {
 			ts := &prompb.TimeSeries{}
 			for _, label := range matchedLabels {
+				if label.Name == "MetricName" {
+					continue
+				}
 				ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
 			}
 			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
