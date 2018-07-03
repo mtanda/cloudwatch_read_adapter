@@ -14,6 +14,7 @@
     "aws/credentials/ec2rolecreds",
     "aws/credentials/endpointcreds",
     "aws/credentials/stscreds",
+    "aws/csm",
     "aws/defaults",
     "aws/ec2metadata",
     "aws/endpoints",
@@ -36,8 +37,8 @@
     "service/ec2",
     "service/sts"
   ]
-  revision = "fad131ddc707880428615dc8bc1587b55fb46d74"
-  version = "v1.13.54"
+  revision = "8f7d1442888a1f96115869cec4af9855018ece98"
+  version = "v1.14.18"
 
 [[projects]]
   branch = "master"
@@ -190,8 +191,8 @@
     "pkg/value",
     "prompb"
   ]
-  revision = "290d71791a507a5057b9a099c9d48703d86dc941"
-  version = "v2.3.0"
+  revision = "188ca45bd85ce843071e768d855722a9d9dabe03"
+  version = "v2.3.1"
 
 [[projects]]
   name = "github.com/prometheus/tsdb"
@@ -301,6 +302,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "5537435c2b11ee506f5948e0098826b5f53f8049736d4150183f6101a6f63978"
+  inputs-digest = "83b7d81bc0e2886c4ac2007497ee2ab2dcdcc7cf80b31722b70c63fd1712eaf2"
   solver-name = "gps-cdcl"
   solver-version = 1
