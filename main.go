@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -87,7 +88,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		q.EndTimestampMs = now.Unix() * 1000
 		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	}
-	maximumStep := q.Hints.StepMs / 1000
+	maximumStep := int64(math.Ceil(float64(q.Hints.StepMs) / float64(1000)))
 
 	// get time series from past(archived) time range
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
