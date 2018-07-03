@@ -193,7 +193,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					if _, ok := metricNameMap[*metric.MetricName]; !ok {
 						metricNameMap[*metric.MetricName] = prometheus.NewGauge(
 							prometheus.GaugeOpts{
-								Name: *metric.MetricName,
+								Name: SafeMetricName(*metric.MetricName),
 								Help: *metric.MetricName,
 							},
 						)
