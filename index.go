@@ -267,6 +267,15 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 				continue
 			}
 		}
+		hasMetricName := false
+		for _, label := range _labels {
+			if label.Name == "MetricName" {
+				hasMetricName = true
+			}
+		}
+		if !hasMetricName {
+			continue
+		}
 
 		matchedLabels = append(matchedLabels, _labels)
 	}
