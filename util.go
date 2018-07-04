@@ -70,6 +70,9 @@ func GetDefaultRegion() (string, error) {
 }
 
 func SafeMetricName(name string) string {
+	if len(name) == 0 {
+		return ""
+	}
 	name = invalidMetricNamePattern.ReplaceAllString(name, "_")
 	if '0' <= name[0] && name[0] <= '9' {
 		name = "_" + name
