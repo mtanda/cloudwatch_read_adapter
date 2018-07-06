@@ -510,7 +510,7 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, 
 			lastTimestamp = t
 			lastValue = v
 			t, v = it.At()
-			for refTime < lastTimestamp {
+			for refTime < lastTimestamp && step > 0 { // for safety, check step
 				refTime += (step * 1000)
 			}
 			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {

@@ -92,6 +92,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 	}
 	maximumStep := int64(math.Ceil(float64(q.Hints.StepMs) / float64(1000)))
+	if maximumStep == 0 {
+		maximumStep = 1 // q.Hints.StepMs == 0 in some query...
+	}
 
 	// get time series from past(archived) time range
 	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
