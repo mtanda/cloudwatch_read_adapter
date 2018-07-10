@@ -183,7 +183,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 func isSingleStatistic(queries []*cloudwatch.GetMetricStatisticsInput) bool {
 	s := ""
 	for _, query := range queries {
-		if len(query.Statistics) > 1 && len(query.ExtendedStatistics) > 1 {
+		if len(query.Statistics) > 1 || len(query.ExtendedStatistics) > 1 {
 			return false
 		}
 		if len(query.Statistics) == 1 {
