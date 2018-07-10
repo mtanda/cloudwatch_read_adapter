@@ -419,8 +419,10 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 		}
 		if len(query.Statistics) == 1 {
 			mdq.MetricStat.Stat = query.Statistics[0]
-		} else {
+		} else if len(query.ExtendedStatistics) == 1 {
 			mdq.MetricStat.Stat = query.ExtendedStatistics[0]
+		} else {
+			return result, fmt.Errorf("no statistics specified")
 		}
 		params.MetricDataQueries = append(params.MetricDataQueries, mdq)
 
