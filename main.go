@@ -58,7 +58,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	q.Matchers = matchers
 
 	// return label name/value list for query editor
-	if namespace == "" {
+	if namespace == "" || q.Hints == nil {
 		m, err := fromLabelMatchers(q.Matchers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
