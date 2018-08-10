@@ -125,7 +125,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			}
 			q.StartTimestampMs = aq.EndTimestampMs
 			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
-			archivedResult, err := archiver.query(&aq, maximumStep)
+			archivedResult, err := archiver.Query(&aq, maximumStep)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return nil, fmt.Errorf("failed to get time series from archive")

@@ -462,7 +462,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, error) {
+func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64) (resultMap, error) {
 	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
@@ -501,15 +501,12 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, 
 			id = id + label.Name + label.Value
 		}
 
-		var lastTimestamp int64
-		var lastValue float64
-		t, v := int64(0), float64(0)
+		lastTimestamp := int64(0)
+		lastValue := float64(0)
 		it := s.Iterator()
 		refTime := q.StartTimestampMs
 		for it.Next() && refTime <= q.EndTimestampMs {
-			lastTimestamp = t
-			lastValue = v
-			t, v = it.At()
+			t, v := it.At()
 			for refTime < lastTimestamp && step > 0 { // for safety, check step
 				refTime += (step * 1000)
 			}
@@ -519,9 +516,11 @@ func (archiver *Archiver) query(q *prompb.Query, maximumStep int64) (resultMap, 
 					ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 				}
 			}
+			lastTimestamp = t
+			lastValue = v
 		}
 		ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-		if step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp > (q.EndTimestampMs - (step * 1000))) {
+		if step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp <= (q.EndTimestampMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 
