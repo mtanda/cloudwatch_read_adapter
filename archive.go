@@ -477,6 +477,9 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 	defer querier.Close()
 
 	step := maximumStep
+	if step > 60 {
+		step = 60 // temporary fix
+	}
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average
