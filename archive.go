@@ -462,7 +462,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64) (resultMap, error) {
+func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
@@ -512,7 +512,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64) (resultMap, 
 			}
 			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
 				ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-				if step > 60 && (t-lastTimestamp) > (step*1000) {
+				if step <= int64(lookbackDelta.Seconds()) && step > 60 && (t-lastTimestamp) > (step*1000) {
 					ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 				}
 			}
@@ -520,7 +520,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64) (resultMap, 
 			lastValue = v
 		}
 		ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-		if step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp <= (q.EndTimestampMs - (step * 1000))) {
+		if step <= int64(lookbackDelta.Seconds()) && step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp <= (q.EndTimestampMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 
