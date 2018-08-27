@@ -106,7 +106,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			baq := *q
 			baq.EndTimestampMs = expiredTime.Unix() * 1000
 			q.StartTimestampMs = baq.EndTimestampMs + 1000
-			level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
+			if debugMode {
+				level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
+			}
 			region, queries, err := getQueryWithIndex(&baq, indexer, maximumStep)
 			if err != nil {
 				level.Error(logger).Log("err", err)
@@ -124,7 +126,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				aq.EndTimestampMs = archiver.s.Timestamp[namespace] * 1000 // tsdb query maxt is inclusive
 			}
 			q.StartTimestampMs = aq.EndTimestampMs
-			level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
+			if debugMode {
+				level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
+			}
 			archivedResult, err := archiver.Query(&aq, maximumStep, lookbackDelta)
 			if err != nil {
 				level.Error(logger).Log("err", err)
@@ -132,8 +136,8 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			}
 			if debugMode {
 				level.Info(logger).Log("msg", "dump archive query result", "result", fmt.Sprintf("%+v", archivedResult))
+				level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(archivedResult)))
 			}
-			level.Info(logger).Log("msg", fmt.Sprintf("Get %d time series from archive.", len(archivedResult)))
 			result.append(archivedResult)
 		}
 	}
@@ -144,10 +148,14 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		var queries []*cloudwatch.GetMetricStatisticsInput
 		var err error
 		if indexer.isExpired(endTime, []string{namespace}) {
-			level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
+			if debugMode {
+				level.Info(logger).Log("msg", "querying for CloudWatch without index", "query", fmt.Sprintf("%+v", q))
+			}
 			region, queries, err = getQueryWithoutIndex(q, indexer, maximumStep)
 		} else {
-			level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
+			if debugMode {
+				level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
+			}
 			region, queries, err = getQueryWithIndex(q, indexer, maximumStep)
 		}
 		if err != nil {
@@ -170,7 +178,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		}
 	}
 
-	level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
+	if debugMode {
+		level.Info(logger).Log("msg", fmt.Sprintf("Returned %d time series.", len(result)))
+	}
 
 	return result.slice(), nil
 }
