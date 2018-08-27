@@ -253,7 +253,10 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
 		rangeAdjust = time.Duration(periodUnit) * time.Second
 	}
-	query.StartTime = aws.Time(query.StartTime.Truncate(time.Duration(periodUnit)).Add(rangeAdjust))
+	query.StartTime = aws.Time(query.StartTime.Truncate(time.Duration(periodUnit)))
+	if (*query.StartTime).Add(rangeAdjust).Before(*query.EndTime) {
+		query.StartTime = aws.Time(query.StartTime.Add(rangeAdjust))
+	}
 	query.EndTime = aws.Time(query.EndTime.Truncate(time.Duration(periodUnit)))
 
 	// auto calibrate period
@@ -436,7 +439,10 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
 		rangeAdjust = time.Duration(periodUnit) * time.Second
 	}
-	params.StartTime = aws.Time(params.StartTime.Truncate(time.Duration(periodUnit)).Add(rangeAdjust))
+	params.StartTime = aws.Time(params.StartTime.Truncate(time.Duration(periodUnit)))
+	if (*params.StartTime).Add(rangeAdjust).Before(*params.EndTime) {
+		params.StartTime = aws.Time(params.StartTime.Add(rangeAdjust))
+	}
 	params.EndTime = aws.Time(params.EndTime.Truncate(time.Duration(periodUnit)))
 	if (params.EndTime).Sub(*params.StartTime)/(time.Duration(period)*time.Second) > PROMETHEUS_MAXIMUM_POINTS {
 		return result, fmt.Errorf("exceed maximum datapoints")
