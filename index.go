@@ -83,7 +83,6 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		logger,
 		prometheus.DefaultRegisterer,
 		&tsdb.Options{
-			WALFlushInterval:  10 * time.Second,
 			RetentionDuration: uint64(retention),
 			BlockRanges: []int64{
 				2 * 60 * 60 * 1000,

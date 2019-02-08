@@ -82,7 +82,6 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		logger,
 		prometheus.NewRegistry(), // TODO: check
 		&tsdb.Options{
-			WALFlushInterval:  10 * time.Second,
 			RetentionDuration: uint64(retention),
 			BlockRanges: []int64{
 				24 * 60 * 60 * 1000,
