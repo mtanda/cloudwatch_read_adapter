@@ -499,7 +499,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 			if label.Name == "MetricName" {
 				continue
 			}
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: label.Name, Value: label.Value})
 			id = id + label.Name + label.Value
 		}
 
@@ -513,17 +513,17 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 				refTime += (step * 1000)
 			}
 			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
-				ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
 				if step <= int64(lookbackDelta.Seconds()) && step > 60 && (t-lastTimestamp) > (step*1000) {
-					ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
+					ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 				}
 			}
 			lastTimestamp = t
 			lastValue = v
 		}
-		ts.Samples = append(ts.Samples, &prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+		ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
 		if step <= int64(lookbackDelta.Seconds()) && step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp <= (q.EndTimestampMs - (step * 1000))) {
-			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
+			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 
 		if _, ok := result[id]; ok {
