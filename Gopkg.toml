@@ -6,7 +6,11 @@ required = ["github.com/grpc-ecosystem/grpc-gateway/runtime"]
 
 [[constraint]]
   name = "github.com/grpc-ecosystem/grpc-gateway"
-  version = "=v1.3"
+  version = "=v1.6.3"
+
+[[constraint]]
+  name = "github.com/gogo/protobuf"
+  version = "=v1.2.0"
 
 [[constraint]]
   branch = "master"
@@ -14,12 +18,12 @@ required = ["github.com/grpc-ecosystem/grpc-gateway/runtime"]
 
 [[constraint]]
   name = "github.com/prometheus/tsdb"
-  revision = "c848349f07c83bd38d5d19faa5ea71c7fd8923ea"
+  version = "v0.4.0"
 
 [[constraint]]
   name = "github.com/prometheus/prometheus"
-  version = "v2.3.1"
+  version = "v2.7.1"
 
 [[constraint]]
   name = "github.com/aws/aws-sdk-go"
-  version = "v1.14.18"
+  version = "v1.16.30"

@@ -73,11 +73,11 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				if label.Name == "MetricName" {
 					continue
 				}
-				ts.Labels = append(ts.Labels, &prompb.Label{Name: label.Name, Value: label.Value})
+				ts.Labels = append(ts.Labels, prompb.Label{Name: label.Name, Value: label.Value})
 			}
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "job", Value: originalJobLabel})
 			t := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
-			ts.Samples = append(ts.Samples, &prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
+			ts.Samples = append(ts.Samples, prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
 			result[string(i)] = ts
 		}
 		//level.Debug(logger).Log("msg", "namespace is required")
@@ -174,7 +174,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 
 	if originalJobLabel != "" {
 		for _, ts := range result {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: "job", Value: originalJobLabel})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "job", Value: originalJobLabel})
 		}
 	}
 

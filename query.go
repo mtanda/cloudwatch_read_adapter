@@ -304,16 +304,16 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	tsm := make(map[string]*prompb.TimeSeries)
 	for _, s := range paramStatistics {
 		ts := &prompb.TimeSeries{}
-		ts.Labels = append(ts.Labels, &prompb.Label{Name: "Region", Value: region})
-		ts.Labels = append(ts.Labels, &prompb.Label{Name: "Namespace", Value: *query.Namespace})
-		ts.Labels = append(ts.Labels, &prompb.Label{Name: "__name__", Value: SafeMetricName(*query.MetricName)})
+		ts.Labels = append(ts.Labels, prompb.Label{Name: "Region", Value: region})
+		ts.Labels = append(ts.Labels, prompb.Label{Name: "Namespace", Value: *query.Namespace})
+		ts.Labels = append(ts.Labels, prompb.Label{Name: "__name__", Value: SafeMetricName(*query.MetricName)})
 		for _, d := range query.Dimensions {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: *d.Name, Value: *d.Value})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: *d.Name, Value: *d.Value})
 		}
 		if !isExtendedStatistics(*s) {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: "Statistic", Value: *s})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "Statistic", Value: *s})
 		} else {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: "ExtendedStatistic", Value: *s})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "ExtendedStatistic", Value: *s})
 		}
 		tsm[*s] = ts
 	}
@@ -346,16 +346,16 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 			}
 			ts := tsm[*s]
 			if *query.Period > 60 && !lastTimestamp.IsZero() && lastTimestamp.Add(time.Duration(*query.Period)*time.Second).Before(*dp.Timestamp) {
-				ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
 			}
-			ts.Samples = append(ts.Samples, &prompb.Sample{Value: value, Timestamp: dp.Timestamp.Unix() * 1000})
+			ts.Samples = append(ts.Samples, prompb.Sample{Value: value, Timestamp: dp.Timestamp.Unix() * 1000})
 		}
 		lastTimestamp = *dp.Timestamp
 	}
 	if *query.Period > 60 && !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) && lastTimestamp.Before(time.Now().UTC().Add(-lookbackDelta)) {
 		for _, s := range paramStatistics {
 			ts := tsm[*s]
-			ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
+			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
 		}
 	}
 
@@ -451,17 +451,17 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 	tsm := make(map[string]*prompb.TimeSeries)
 	for _, r := range params.MetricDataQueries {
 		ts := &prompb.TimeSeries{}
-		ts.Labels = append(ts.Labels, &prompb.Label{Name: "Region", Value: region})
-		ts.Labels = append(ts.Labels, &prompb.Label{Name: "Namespace", Value: *r.MetricStat.Metric.Namespace})
-		ts.Labels = append(ts.Labels, &prompb.Label{Name: "__name__", Value: SafeMetricName(*r.MetricStat.Metric.MetricName)})
+		ts.Labels = append(ts.Labels, prompb.Label{Name: "Region", Value: region})
+		ts.Labels = append(ts.Labels, prompb.Label{Name: "Namespace", Value: *r.MetricStat.Metric.Namespace})
+		ts.Labels = append(ts.Labels, prompb.Label{Name: "__name__", Value: SafeMetricName(*r.MetricStat.Metric.MetricName)})
 		for _, d := range r.MetricStat.Metric.Dimensions {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: *d.Name, Value: *d.Value})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: *d.Name, Value: *d.Value})
 		}
 		s := *r.MetricStat.Stat
 		if !isExtendedStatistics(s) {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: "Statistic", Value: s})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "Statistic", Value: s})
 		} else {
-			ts.Labels = append(ts.Labels, &prompb.Label{Name: "ExtendedStatistic", Value: s})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "ExtendedStatistic", Value: s})
 		}
 		tsm[*r.Id] = ts
 	}
@@ -482,19 +482,19 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 		for _, r := range resp.MetricDataResults {
 			ts := tsm[*r.Id]
 			for i, t := range r.Timestamps {
-				ts.Samples = append(ts.Samples, &prompb.Sample{Value: *r.Values[i], Timestamp: t.Unix() * 1000})
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: *r.Values[i], Timestamp: t.Unix() * 1000})
 				if period <= 60 {
 					continue
 				}
 				if i != len(r.Timestamps) && i != 0 {
 					lastTimestamp := r.Timestamps[i-1]
 					if lastTimestamp.Add(time.Duration(period) * time.Second).Before(*r.Timestamps[i]) {
-						ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + period) * 1000})
+						ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + period) * 1000})
 					}
 				} else if i == len(r.Timestamps) {
 					lastTimestamp := r.Timestamps[i]
 					if lastTimestamp.Before(*params.EndTime) && lastTimestamp.Before(time.Now().UTC().Add(-lookbackDelta)) {
-						ts.Samples = append(ts.Samples, &prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + period) * 1000})
+						ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + period) * 1000})
 					}
 				}
 			}
