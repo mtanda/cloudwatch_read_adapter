@@ -78,8 +78,8 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 			query.MetricName = aws.String(oldMetricName) // backward compatibility
 		}
 	}
-	query.StartTime = aws.Time(time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000)))
-	query.EndTime = aws.Time(time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000)))
+	query.StartTime = aws.Time(time.Unix(int64(q.Hints.StartMs/1000), int64(q.Hints.StartMs%1000*1000)))
+	query.EndTime = aws.Time(time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000)))
 	queries = append(queries, query)
 
 	return region, queries, nil
@@ -103,11 +103,11 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 		return region, queries, err
 	}
 	iq := *q
-	if time.Unix(q.EndTimestampMs/1000, 0).Sub(time.Unix(q.StartTimestampMs/1000, 0)) < 2*indexer.interval {
+	if time.Unix(q.Hints.EndMs/1000, 0).Sub(time.Unix(q.Hints.StartMs/1000, 0)) < 2*indexer.interval {
 		// expand enough long period to match index
-		iq.StartTimestampMs = time.Unix(q.EndTimestampMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
+		iq.Hints.StartMs = time.Unix(q.Hints.EndMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
 	}
-	matchedLabelsList, err := indexer.getMatchedLabels(matchers, iq.StartTimestampMs, q.EndTimestampMs)
+	matchedLabelsList, err := indexer.getMatchedLabels(matchers, iq.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return region, queries, err
 	}
@@ -172,8 +172,8 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}
 			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}
 		}
-		query.StartTime = aws.Time(time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000)))
-		query.EndTime = aws.Time(time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000)))
+		query.StartTime = aws.Time(time.Unix(int64(q.Hints.StartMs/1000), int64(q.Hints.StartMs%1000*1000)))
+		query.EndTime = aws.Time(time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000)))
 		queries = append(queries, query)
 	}
 
@@ -250,7 +250,7 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	// align time range
 	periodUnit := 60
 	rangeAdjust := 0 * time.Second
-	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
+	if q.Hints.StartMs%int64(periodUnit*1000) != 0 {
 		rangeAdjust = time.Duration(periodUnit) * time.Second
 	}
 	query.StartTime = aws.Time(query.StartTime.Truncate(time.Duration(periodUnit)))
@@ -436,7 +436,7 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 
 	// align time range
 	rangeAdjust := 0 * time.Second
-	if q.StartTimestampMs%int64(periodUnit*1000) != 0 {
+	if q.Hints.StartMs%int64(periodUnit*1000) != 0 {
 		rangeAdjust = time.Duration(periodUnit) * time.Second
 	}
 	params.StartTime = aws.Time(params.StartTime.Truncate(time.Duration(periodUnit)))

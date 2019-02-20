@@ -469,7 +469,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 		return nil, err
 	}
 
-	querier, err := archiver.db.Querier(q.StartTimestampMs, q.EndTimestampMs)
+	querier, err := archiver.db.Querier(q.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return nil, err
 	}
@@ -506,8 +506,8 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 		lastTimestamp := int64(0)
 		lastValue := float64(0)
 		it := s.Iterator()
-		refTime := q.StartTimestampMs
-		for it.Next() && refTime <= q.EndTimestampMs {
+		refTime := q.Hints.StartMs
+		for it.Next() && refTime <= q.Hints.EndMs {
 			t, v := it.At()
 			for refTime < lastTimestamp && step > 0 { // for safety, check step
 				refTime += (step * 1000)
@@ -522,7 +522,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 			lastValue = v
 		}
 		ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-		if step <= int64(lookbackDelta.Seconds()) && step > 60 && (q.EndTimestampMs > lastTimestamp) && (lastTimestamp <= (q.EndTimestampMs - (step * 1000))) {
+		if step <= int64(lookbackDelta.Seconds()) && step > 60 && (q.Hints.EndMs > lastTimestamp) && (lastTimestamp <= (q.Hints.EndMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 

@@ -63,7 +63,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
-		matchedLabelsList, err := indexer.getMatchedLabels(m, q.StartTimestampMs, q.EndTimestampMs)
+		matchedLabelsList, err := indexer.getMatchedLabels(m, q.Hints.StartMs, q.Hints.EndMs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
@@ -76,7 +76,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				ts.Labels = append(ts.Labels, prompb.Label{Name: label.Name, Value: label.Value})
 			}
 			ts.Labels = append(ts.Labels, prompb.Label{Name: "job", Value: originalJobLabel})
-			t := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+			t := time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000))
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
 			result[string(i)] = ts
 		}
@@ -84,12 +84,12 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		return result.slice(), nil
 	}
 
-	startTime := time.Unix(int64(q.StartTimestampMs/1000), int64(q.StartTimestampMs%1000*1000))
-	endTime := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+	startTime := time.Unix(int64(q.Hints.StartMs/1000), int64(q.Hints.StartMs%1000*1000))
+	endTime := time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000))
 	now := time.Now().UTC()
 	if endTime.After(now) {
-		q.EndTimestampMs = now.Unix() * 1000
-		endTime = time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
+		q.Hints.EndMs = now.Unix() * 1000
+		endTime = time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000))
 	}
 	maximumStep := int64(math.Ceil(float64(q.Hints.StepMs) / float64(1000)))
 	if maximumStep == 0 {
@@ -97,15 +97,15 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 
 	// get time series from past(archived) time range
-	if q.StartTimestampMs < q.EndTimestampMs && archiver.isArchived(startTime, []string{namespace}) {
+	if q.Hints.StartMs < q.Hints.EndMs && archiver.isArchived(startTime, []string{namespace}) {
 		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
 			expiredTime := time.Now().UTC().Add(-archiver.retention)
 			if endTime.Before(expiredTime) {
 				expiredTime = endTime
 			}
 			baq := *q
-			baq.EndTimestampMs = expiredTime.Unix() * 1000
-			q.StartTimestampMs = baq.EndTimestampMs + 1000
+			baq.Hints.EndMs = expiredTime.Unix() * 1000
+			q.Hints.StartMs = baq.Hints.EndMs + 1000
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
 			}
@@ -120,12 +120,12 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				return nil, fmt.Errorf("failed to get time series from CloudWatch")
 			}
 		}
-		if q.StartTimestampMs < q.EndTimestampMs {
+		if q.Hints.StartMs < q.Hints.EndMs {
 			aq := *q
-			if aq.EndTimestampMs > archiver.s.Timestamp[namespace]*1000 {
-				aq.EndTimestampMs = archiver.s.Timestamp[namespace] * 1000 // tsdb query maxt is inclusive
+			if aq.Hints.EndMs > archiver.s.Timestamp[namespace]*1000 {
+				aq.Hints.EndMs = archiver.s.Timestamp[namespace] * 1000 // tsdb query maxt is inclusive
 			}
-			q.StartTimestampMs = aq.EndTimestampMs
+			q.Hints.StartMs = aq.Hints.EndMs
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
 			}
@@ -143,7 +143,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 
 	// get time series from recent time range
-	if q.StartTimestampMs < q.EndTimestampMs {
+	if q.Hints.StartMs < q.Hints.EndMs {
 		var region string
 		var queries []*cloudwatch.GetMetricStatisticsInput
 		var err error
