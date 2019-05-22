@@ -63,7 +63,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
-		matchedLabelsList, err := indexer.getMatchedLabels(m, q.Hints.StartMs, q.Hints.EndMs)
+		matchedLabelsList, err := indexer.getMatchedLabels(m, q.StartTimestampMs, q.EndTimestampMs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
@@ -76,7 +76,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				ts.Labels = append(ts.Labels, prompb.Label{Name: label.Name, Value: label.Value})
 			}
 			ts.Labels = append(ts.Labels, prompb.Label{Name: "job", Value: originalJobLabel})
-			t := time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000))
+			t := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
 			result[string(i)] = ts
 		}
