@@ -104,6 +104,8 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 				expiredTime = endTime
 			}
 			baq := *q
+			baq.Hints = &prompb.ReadHints{}
+			*baq.Hints = *q.Hints
 			baq.Hints.EndMs = expiredTime.Unix() * 1000
 			q.Hints.StartMs = baq.Hints.EndMs + 1000
 			if debugMode {
@@ -122,6 +124,8 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		}
 		if q.Hints.StartMs < q.Hints.EndMs {
 			aq := *q
+			aq.Hints = &prompb.ReadHints{}
+			*aq.Hints = *q.Hints
 			if aq.Hints.EndMs > archiver.s.Timestamp[namespace]*1000 {
 				aq.Hints.EndMs = archiver.s.Timestamp[namespace] * 1000 // tsdb query maxt is inclusive
 			}

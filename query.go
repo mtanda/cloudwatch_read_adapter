@@ -103,6 +103,8 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 		return region, queries, err
 	}
 	iq := *q
+	iq.Hints = &prompb.ReadHints{}
+	*iq.Hints = *q.Hints
 	if time.Unix(q.Hints.EndMs/1000, 0).Sub(time.Unix(q.Hints.StartMs/1000, 0)) < 2*indexer.interval {
 		// expand enough long period to match index
 		iq.Hints.StartMs = time.Unix(q.Hints.EndMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
