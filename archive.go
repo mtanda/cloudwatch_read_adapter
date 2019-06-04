@@ -551,6 +551,13 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 		}
 	}
 
+	// sort by timestamp
+	for _, ts := range result {
+		sort.Slice(ts.Samples, func(i, j int) bool {
+			return ts.Samples[i].Timestamp < ts.Samples[j].Timestamp
+		})
+	}
+
 	return result, nil
 }
 
