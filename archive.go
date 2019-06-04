@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -489,7 +490,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 	defer querier.Close()
 
 	step := maximumStep
-	if step > 60 {
+	if strings.Index(q.Hints.Func, "_over_time") >= 0 && step > 60 {
 		step = 60 // temporary fix
 	}
 
