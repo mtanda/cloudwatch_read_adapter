@@ -476,7 +476,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 }
 
 func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
-	result := make(resultMap)
+	unsortedResults := make(map[string][]*prompb.TimeSeries)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
 	if err != nil {
@@ -540,14 +540,25 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
 
-		if _, ok := result[id]; ok {
-			if result[id].Samples[0].Timestamp < ts.Samples[0].Timestamp {
+		if _, ok := unsortedResults[id]; !ok {
+			unsortedResults[id] = make([]*prompb.TimeSeries, 0)
+		}
+		unsortedResults[id] = append(unsortedResults[id], ts)
+	}
+
+	// sort by timestamp
+	for _, tsl := range unsortedResults {
+		sort.Slice(tsl, func(i, j int) bool {
+			return tsl[i].Samples[0].Timestamp < tsl[j].Samples[0].Timestamp
+		})
+	}
+	result := make(resultMap)
+	for id, tsl := range unsortedResults {
+		result[id] = tsl[0]
+		if len(tsl) > 1 {
+			for _, ts := range tsl[1:] {
 				result[id].Samples = append(result[id].Samples, ts.Samples...)
-			} else {
-				result[id].Samples = append(ts.Samples, result[id].Samples...)
 			}
-		} else {
-			result[id] = ts
 		}
 	}
 
