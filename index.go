@@ -37,12 +37,20 @@ var (
 		},
 		[]string{"namespace"},
 	)
+	indexerLastSuccessTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "cloudwatch_read_adapter_indexer_last_success_timestamp_seconds",
+			Help: "The last timestamp of indexing target",
+		},
+		[]string{"namespace"},
+	)
 	metricNameMap = make(map[string]prometheus.Gauge)
 )
 
 func init() {
 	prometheus.MustRegister(indexerTargetsProgress)
 	prometheus.MustRegister(indexerTargetsTotal)
+	prometheus.MustRegister(indexerLastSuccessTimestamp)
 }
 
 type Indexer struct {
@@ -213,6 +221,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				}
 
 				indexerTargetsProgress.WithLabelValues(namespace).Set(float64(len(metrics)))
+				indexerLastSuccessTimestamp.WithLabelValues(namespace).Set(float64(now.Unix()))
 			}
 
 			level.Info(indexer.logger).Log("msg", "indexing completed")

@@ -38,11 +38,19 @@ var (
 		},
 		[]string{"namespace"},
 	)
+	archiverLastSuccessTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "cloudwatch_read_adapter_archiver_last_success_timestamp_seconds",
+			Help: "The last timestamp of archiving target",
+		},
+		[]string{"namespace"},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(archiverTargetsProgress)
 	prometheus.MustRegister(archiverTargetsTotal)
+	prometheus.MustRegister(archiverLastSuccessTimestamp)
 }
 
 type Archiver struct {
@@ -235,6 +243,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
+								archiverLastSuccessTimestamp.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(time.Now().Unix()))
 
 								// reset index for next archiving cycle
 								archiver.s.Index = 0
@@ -258,6 +267,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
+								archiverLastSuccessTimestamp.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(time.Now().Unix()))
 
 								// archive next namespace
 								archiver.s.Index = 0
