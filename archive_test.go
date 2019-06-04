@@ -3,6 +3,7 @@ package main_test
 import (
 	"io/ioutil"
 	"testing"
+	"time"
 
 	"github.com/go-kit/kit/log"
 	main "github.com/mtanda/cloudwatch_read_adapter"
@@ -33,6 +34,11 @@ func TestQuery(t *testing.T) {
 	query := prompb.Query{
 		StartTimestampMs: 1533682980000,
 		EndTimestampMs:   1533704880000,
+		Hints: &prompb.ReadHints{
+			StartMs: 1533682980000,
+			EndMs:   1533704880000,
+			Func:    "",
+		},
 		Matchers: []*prompb.LabelMatcher{
 			&prompb.LabelMatcher{
 				Type:  prompb.LabelMatcher_EQ,
@@ -41,7 +47,7 @@ func TestQuery(t *testing.T) {
 			},
 		},
 	}
-	result, err := archiver.Query(&query, 61)
+	result, err := archiver.Query(&query, 61, 5*time.Minute)
 	testutil.Ok(t, err)
 	testutil.Equals(t, len(result["__name__test"].Samples), 2)
 	testutil.Equals(t, result["__name__test"].Samples[0].Timestamp, int64(1533687120000))
