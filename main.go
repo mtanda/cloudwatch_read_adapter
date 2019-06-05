@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math"
 	"net/http"
@@ -19,6 +20,9 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
 	"github.com/prometheus/client_golang/prometheus"
+	io_prometheus_client "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
+
 	"github.com/prometheus/common/promlog"
 	"github.com/prometheus/prometheus/prompb"
 	"golang.org/x/sync/errgroup"
@@ -254,7 +258,71 @@ func main() {
 	archiver.start(eg, ctx)
 
 	srv := &http.Server{Addr: cfg.listenAddr}
-	http.Handle("/metrics", prometheus.Handler())
+	http.HandleFunc("/metrics", func(rsp http.ResponseWriter, req *http.Request) {
+		httpError := func(rsp http.ResponseWriter, err error) {
+			rsp.Header().Del("Content-Encoding")
+			http.Error(
+				rsp,
+				"An error has occurred while serving metrics:\n\n"+err.Error(),
+				http.StatusInternalServerError,
+			)
+		}
+
+		mfs, err := prometheus.DefaultGatherer.Gather()
+		if err != nil {
+			httpError(rsp, err)
+			return
+		}
+		mfsi, err := indexer.registry.Gather()
+		if err != nil {
+			httpError(rsp, err)
+			return
+		}
+		mfsa, err := archiver.registry.Gather()
+		if err != nil {
+			httpError(rsp, err)
+			return
+		}
+
+		ln := "database"
+		lv1 := "index"
+		for _, mf := range mfsi {
+			for _, m := range mf.Metric {
+				m.Label = []*io_prometheus_client.LabelPair{}
+				for _, l := range m.Label {
+					m.Label = append(m.Label, &io_prometheus_client.LabelPair{Name: l.Name, Value: l.Value})
+				}
+				m.Label = append(m.Label, &io_prometheus_client.LabelPair{Name: &ln, Value: &lv1})
+			}
+		}
+		mfs = append(mfs, mfsi...)
+
+		lv2 := "archive"
+		for _, mf := range mfsa {
+			for _, m := range mf.Metric {
+				m.Label = []*io_prometheus_client.LabelPair{}
+				for _, l := range m.Label {
+					m.Label = append(m.Label, &io_prometheus_client.LabelPair{Name: l.Name, Value: l.Value})
+				}
+				m.Label = append(m.Label, &io_prometheus_client.LabelPair{Name: &ln, Value: &lv2})
+			}
+		}
+		mfs = append(mfs, mfsa...)
+
+		contentType := expfmt.Negotiate(req.Header)
+		header := rsp.Header()
+		header.Set("Content-Type", string(contentType))
+
+		w := io.Writer(rsp)
+		enc := expfmt.NewEncoder(w, contentType)
+
+		for _, mf := range mfs {
+			if err := enc.Encode(mf); err != nil {
+				httpError(rsp, err)
+				return
+			}
+		}
+	})
 	http.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
 		compressed, err := ioutil.ReadAll(r.Body)
 		if err != nil {
