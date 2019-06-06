@@ -541,11 +541,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 		}
 
 		if _, ok := result[id]; ok {
-			if result[id].Samples[0].Timestamp < ts.Samples[0].Timestamp {
-				result[id].Samples = append(result[id].Samples, ts.Samples...)
-			} else {
-				result[id].Samples = append(ts.Samples, result[id].Samples...)
-			}
+			result[id].Samples = append(result[id].Samples, ts.Samples...)
 		} else {
 			result[id] = ts
 		}
