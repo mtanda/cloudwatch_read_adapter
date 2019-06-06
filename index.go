@@ -64,6 +64,7 @@ type Indexer struct {
 	indexedTimestampFrom time.Time
 	s                    *IndexerState
 	storagePath          string
+	registry             prometheus.Gatherer
 	logger               log.Logger
 }
 
@@ -86,10 +87,11 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 	ec2 := ec2.New(sess, awsCfg)
 	dynamodb := dynamodb.New(sess, awsCfg)
 
+	registry := prometheus.NewRegistry()
 	db, err := tsdb.Open(
 		storagePath+"/index",
 		logger,
-		prometheus.DefaultRegisterer,
+		registry,
 		&tsdb.Options{
 			RetentionDuration: uint64(retention),
 			BlockRanges: []int64{
@@ -119,6 +121,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		indexedTimestampFrom: time.Unix(0, 0),
 		s:                    s,
 		storagePath:          storagePath,
+		registry:             registry,
 		logger:               logger,
 	}, nil
 }

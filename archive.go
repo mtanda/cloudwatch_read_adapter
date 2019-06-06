@@ -65,6 +65,7 @@ type Archiver struct {
 	retention          time.Duration
 	s                  *ArchiverState
 	storagePath        string
+	registry           prometheus.Gatherer
 	logger             log.Logger
 }
 
@@ -85,10 +86,11 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 	}
 	cloudwatch := cloudwatch.New(sess, awsCfg)
 
+	registry := prometheus.NewRegistry()
 	db, err := tsdb.Open(
 		storagePath+"/archive",
 		logger,
-		prometheus.NewRegistry(), // TODO: check
+		registry,
 		&tsdb.Options{
 			RetentionDuration: uint64(retention),
 			BlockRanges: []int64{
@@ -119,6 +121,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		retention:          time.Duration(retention),
 		s:                  s,
 		storagePath:        storagePath,
+		registry:           registry,
 		logger:             logger,
 	}, nil
 }
