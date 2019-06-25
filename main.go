@@ -111,7 +111,8 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			baq.Hints = &prompb.ReadHints{}
 			*baq.Hints = *q.Hints
 			baq.Hints.EndMs = expiredTime.Unix() * 1000
-			q.Hints.StartMs = baq.Hints.EndMs + 1000
+			offsetForStepMs := q.Hints.StartMs % q.Hints.StepMs
+			q.Hints.StartMs = (baq.Hints.EndMs + q.Hints.StepMs) - ((baq.Hints.EndMs + q.Hints.StepMs) % q.Hints.StepMs) + offsetForStepMs
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
 			}
