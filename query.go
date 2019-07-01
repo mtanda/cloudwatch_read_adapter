@@ -250,7 +250,7 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	}
 
 	// align time range
-	periodUnit := 60
+	periodUnit := calibratePeriod(*query.StartTime)
 	rangeAdjust := 0 * time.Second
 	if q.Hints.StartMs%int64(periodUnit*1000) != 0 {
 		rangeAdjust = time.Duration(periodUnit) * time.Second
@@ -388,7 +388,7 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 	}
 	var namespace string
 	var period int64
-	periodUnit := 60
+	periodUnit := calibratePeriod(*queries[0].StartTime)
 
 	// convert to GetMetricData query
 	for i, query := range queries {
