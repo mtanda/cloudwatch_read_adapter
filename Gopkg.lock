@@ -98,10 +98,12 @@
   version = "v1.7.0"
 
 [[projects]]
-  digest = "1:ffc17fb58e7b0e7f79601e789110e05a2f7404f59b7c0e202d4eec07ebd96003"
+  digest = "1:452644cddfec8736ad410d9a5a4eacce21810873ceaa938ae373edf2f2c0fe84"
   name = "github.com/gogo/protobuf"
   packages = [
+    "gogoproto",
     "proto",
+    "protoc-gen-gogo/descriptor",
     "sortkeys",
     "types",
   ]
@@ -173,12 +175,12 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:e25f71dc198d4f3285f663d1d32b90b219a5e680ac5cc77ace86f663f6d68baf"
+  digest = "1:860c25446f565f998eb698ddc033e9e43b2546eb950b20aca28f30ba73deb86d"
   name = "github.com/oklog/ulid"
   packages = ["."]
   pruneopts = "UT"
-  revision = "d311cb43c92434ec4072dfbbda3400741d0a6337"
-  version = "v0.3.0"
+  revision = "be3bccf06dda9a40aa6800c4736ac77f2fef987f"
+  version = "v2.0.2"
 
 [[projects]]
   digest = "1:40e195917a951a8bf867cd05de2a46aaf1806c50cf92eebf4c16f78cd196f747"
@@ -231,7 +233,7 @@
   revision = "8b1c2da0d56deffdbb9e48d4414b4e674bd8083e"
 
 [[projects]]
-  digest = "1:d8de72d54bb9c73af9ea20e66fe459774cc80f3a21d2717728808a49e6cc7326"
+  digest = "1:73ce64a1b594bcc3c273e1e653cbdd493bd131ca5839be5da3a5e43ec3b552f5"
   name = "github.com/prometheus/prometheus"
   packages = [
     "pkg/labels",
@@ -242,24 +244,27 @@
     "util/testutil",
   ]
   pruneopts = "UT"
-  revision = "62e591f928ddf6b3468308b7ac1de1c63aa7fcf3"
-  version = "v2.7.1"
+  revision = "4ef66003d9855ed2b7a41e987b33828ec36db34d"
+  version = "v2.11.0"
 
 [[projects]]
-  digest = "1:b2bd091ef99711e72be2b0871aa406e3d93158005196323ebd687e77a4399d94"
+  digest = "1:ccc29d18cbc3e95ecc53a6f28a900fa119f315acebfb2c18ca6c6873a760b072"
   name = "github.com/prometheus/tsdb"
   packages = [
     ".",
     "chunkenc",
     "chunks",
+    "encoding",
+    "errors",
     "fileutil",
+    "goversion",
     "index",
     "labels",
     "wal",
   ]
   pruneopts = "UT"
-  revision = "10ba228e6baa4811818e04b1ab9b48110bb43d7b"
-  version = "v0.4.0"
+  revision = "d230c67aa180850b80ae49e07079f55df1da0502"
+  version = "v0.9.1"
 
 [[projects]]
   branch = "master"
@@ -392,6 +397,8 @@
     "github.com/golang/snappy",
     "github.com/grpc-ecosystem/grpc-gateway/runtime",
     "github.com/prometheus/client_golang/prometheus",
+    "github.com/prometheus/client_model/go",
+    "github.com/prometheus/common/expfmt",
     "github.com/prometheus/common/model",
     "github.com/prometheus/common/promlog",
     "github.com/prometheus/prometheus/pkg/value",
