@@ -1,6 +1,6 @@
 # Universally Unique Lexicographically Sortable Identifier
 
-![Project status](https://img.shields.io/badge/version-0.2.0-yellow.svg)
+![Project status](https://img.shields.io/badge/version-1.3.0-yellow.svg)
 [![Build Status](https://secure.travis-ci.org/oklog/ulid.png)](http://travis-ci.org/oklog/ulid)
 [![Go Report Card](https://goreportcard.com/badge/oklog/ulid?cache=0)](https://goreportcard.com/report/oklog/ulid)
 [![Coverage Status](https://coveralls.io/repos/github/oklog/ulid/badge.svg?branch=master&cache=0)](https://coveralls.io/github/oklog/ulid?branch=master)
@@ -14,7 +14,9 @@ A Go port of [alizain/ulid](https://github.com/alizain/ulid) with binary format 
 A GUID/UUID can be suboptimal for many use-cases because:
 
 - It isn't the most character efficient way of encoding 128 bits
-- It provides no other information than randomness
+- UUID v1/v2 is impractical in many environments, as it requires access to a unique, stable MAC address
+- UUID v3/v5 requires a unique seed and produces randomly distributed IDs, which can cause fragmentation in many data structures
+- UUID v4 provides no other information than randomness which can cause fragmentation in many data structures
 
 A ULID however:
 
@@ -25,6 +27,7 @@ A ULID however:
 - Uses Crockford's base32 for better efficiency and readability (5 bits per character)
 - Case insensitive
 - No special characters (URL safe)
+- Monotonic sort order (correctly detects and handles the same millisecond)
 
 ## Install
 
@@ -43,11 +46,44 @@ Instantiate one per long living go-routine or use a `sync.Pool` if you want to a
 ```go
 func ExampleULID() {
 	t := time.Unix(1000000, 0)
-	entropy := rand.New(rand.NewSource(t.UnixNano()))
+	entropy := ulid.Monotonic(rand.New(rand.NewSource(t.UnixNano())), 0)
 	fmt.Println(ulid.MustNew(ulid.Timestamp(t), entropy))
 	// Output: 0000XSNJG0MQJHBF4QX1EFD6Y3
 }
+```
 
+## Commandline tool
+
+This repo also provides a tool to generate and parse ULIDs at the command line.
+
+Installation:
+
+```shell
+go get github.com/oklog/ulid/cmd/ulid
+```
+
+Usage:
+
+```shell
+Usage: ulid [-hlqz] [-f <format>] [parameters ...]
+ -f, --format=<format>  when parsing, show times in this format: default, rfc3339, unix, ms
+ -h, --help             print this help text
+ -l, --local            when parsing, show local time instead of UTC
+ -q, --quick            when generating, use non-crypto-grade entropy
+ -z, --zero             when generating, fix entropy to all-zeroes
+```
+
+Examples:
+
+```shell
+$ ulid
+01D78XYFJ1PRM1WPBCBT3VHMNV
+$ ulid -z
+01D78XZ44G0000000000000000
+$ ulid 01D78XZ44G0000000000000000
+Sun Mar 31 03:51:23.536 UTC 2019
+$ ulid --format=rfc3339 --local 01D78XZ44G0000000000000000
+2019-03-30T20:51:23.536PDT
 ```
 
 ## Specification
@@ -64,6 +100,7 @@ Below is the current specification of ULID as implemented in this repository.
 **Entropy**
 - 80 bits
 - User defined entropy source.
+- Monotonicity within the same millisecond with [`ulid.Monotonic`](https://godoc.org/github.com/oklog/ulid#Monotonic)
 
 ### Encoding
 
@@ -114,27 +151,28 @@ go test ./...
 On a Intel Core i7 Ivy Bridge 2.7 GHz, MacOS 10.12.1 and Go 1.8.0beta1
 
 ```
-BenchmarkNew/WithCryptoEntropy-8      2000000     747  ns/op  16 B/op  1 allocs/op
-BenchmarkNew/WithEntropy-8            20000000    63.9 ns/op  16 B/op  1 allocs/op
-BenchmarkNew/WithoutEntropy-8         50000000    29.4 ns/op  16 B/op  1 allocs/op
-BenchmarkMustNew/WithCryptoEntropy-8  2000000     744  ns/op  16 B/op  1 allocs/op
-BenchmarkMustNew/WithEntropy-8        20000000    68.0 ns/op  16 B/op  1 allocs/op
-BenchmarkMustNew/WithoutEntropy-8     50000000    34.0 ns/op  16 B/op  1 allocs/op
-BenchmarkParse-8                      50000000    30.6 ns/op   0 B/op  0 allocs/op
-BenchmarkMustParse-8                  50000000    36.2 ns/op   0 B/op  0 allocs/op
-BenchmarkString-8                     20000000    61.6 ns/op  32 B/op  1 allocs/op
-BenchmarkMarshal/Text-8               30000000    53.3 ns/op  32 B/op  1 allocs/op
-BenchmarkMarshal/TextTo-8             100000000   22.8 ns/op   0 B/op  0 allocs/op
-BenchmarkMarshal/Binary-8             300000000   4.40 ns/op   0 B/op  0 allocs/op
-BenchmarkMarshal/BinaryTo-8           2000000000  1.16 ns/op   0 B/op  0 allocs/op
-BenchmarkUnmarshal/Text-8             100000000   20.0 ns/op   0 B/op  0 allocs/op
-BenchmarkUnmarshal/Binary-8           300000000   5.25 ns/op   0 B/op  0 allocs/op
-BenchmarkNow-8                        100000000   14.3 ns/op   0 B/op  0 allocs/op
-BenchmarkTimestamp-8                  2000000000  0.29 ns/op   0 B/op  0 allocs/op
-BenchmarkTime-8                       2000000000  0.58 ns/op   0 B/op  0 allocs/op
-BenchmarkSetTime-8                    2000000000  0.85 ns/op   0 B/op  0 allocs/op
-BenchmarkEntropy-8                    200000000   7.17 ns/op   0 B/op  0 allocs/op
-BenchmarkSetEntropy-8                 2000000000  0.83 ns/op   0 B/op  0 allocs/op
+BenchmarkNew/WithCryptoEntropy-8      2000000        771 ns/op      20.73 MB/s   16 B/op   1 allocs/op
+BenchmarkNew/WithEntropy-8            20000000      65.8 ns/op     243.01 MB/s   16 B/op   1 allocs/op
+BenchmarkNew/WithoutEntropy-8         50000000      30.0 ns/op     534.06 MB/s   16 B/op   1 allocs/op
+BenchmarkMustNew/WithCryptoEntropy-8  2000000        781 ns/op      20.48 MB/s   16 B/op   1 allocs/op
+BenchmarkMustNew/WithEntropy-8        20000000      70.0 ns/op     228.51 MB/s   16 B/op   1 allocs/op
+BenchmarkMustNew/WithoutEntropy-8     50000000      34.6 ns/op     462.98 MB/s   16 B/op   1 allocs/op
+BenchmarkParse-8                      50000000      30.0 ns/op     866.16 MB/s    0 B/op   0 allocs/op
+BenchmarkMustParse-8                  50000000      35.2 ns/op     738.94 MB/s    0 B/op   0 allocs/op
+BenchmarkString-8                     20000000      64.9 ns/op     246.40 MB/s   32 B/op   1 allocs/op
+BenchmarkMarshal/Text-8               20000000      55.8 ns/op     286.84 MB/s   32 B/op   1 allocs/op
+BenchmarkMarshal/TextTo-8             100000000     22.4 ns/op     714.91 MB/s    0 B/op   0 allocs/op
+BenchmarkMarshal/Binary-8             300000000     4.02 ns/op    3981.77 MB/s    0 B/op   0 allocs/op
+BenchmarkMarshal/BinaryTo-8           2000000000    1.18 ns/op   13551.75 MB/s    0 B/op   0 allocs/op
+BenchmarkUnmarshal/Text-8             100000000     20.5 ns/op    1265.27 MB/s    0 B/op   0 allocs/op
+BenchmarkUnmarshal/Binary-8           300000000     4.94 ns/op    3240.01 MB/s    0 B/op   0 allocs/op
+BenchmarkNow-8                        100000000     15.1 ns/op     528.09 MB/s    0 B/op   0 allocs/op
+BenchmarkTimestamp-8                  2000000000    0.29 ns/op   27271.59 MB/s    0 B/op   0 allocs/op
+BenchmarkTime-8                       2000000000    0.58 ns/op   13717.80 MB/s    0 B/op   0 allocs/op
+BenchmarkSetTime-8                    2000000000    0.89 ns/op    9023.95 MB/s    0 B/op   0 allocs/op
+BenchmarkEntropy-8                    200000000     7.62 ns/op    1311.66 MB/s    0 B/op   0 allocs/op
+BenchmarkSetEntropy-8                 2000000000    0.88 ns/op   11376.54 MB/s    0 B/op   0 allocs/op
+BenchmarkCompare-8                    200000000     7.34 ns/op    4359.23 MB/s    0 B/op   0 allocs/op
 ```
 
 ## Prior Art
