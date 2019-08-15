@@ -23,7 +23,7 @@ require (
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4
 	github.com/prometheus/common v0.6.0
 	github.com/prometheus/procfs v0.0.3
-	github.com/prometheus/prometheus v0.0.0-20190814173727-eaf81808d5aa
+	github.com/prometheus/prometheus v0.0.0-20190818123050-43acd0e2e93f
 	golang.org/x/net v0.0.0-20190724013045-ca1201d0de80
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
 	golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
@@ -32,5 +32,3 @@ require (
 	google.golang.org/grpc v1.22.1
 	gopkg.in/yaml.v2 v2.2.2
 )
-
-replace github.com/oklog/ulid v0.0.0-20190509100159-be3bccf06dda => github.com/oklog/ulid/v2 v2.0.2

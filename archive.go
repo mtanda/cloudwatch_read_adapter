@@ -98,6 +98,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 				24 * 60 * 60 * 1000,
 				72 * 60 * 60 * 1000,
 			},
+			AllowOverlappingBlocks: false,
 		},
 	)
 	if err != nil {
@@ -149,6 +150,7 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 func (archiver *Archiver) archive(ctx context.Context) error {
 	timeMargin := 15 * time.Minute // wait until CloudWatch record metrics
 	apiCallRate := 0.5
+	commitSize := 100
 
 	t := time.NewTimer(1 * time.Minute)
 	defer t.Stop()
@@ -197,7 +199,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				}
 				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(len(matchedLabelsList)))
 
-				archiver.db.DisableCompactions()
 				app := archiver.db.Appender()
 				l := make(labels.Labels, 0)
 				l = append(l, labels.Label{Name: "__name__", Value: "dummy"})
@@ -207,11 +208,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				if err := app.Commit(); err != nil {
 					return err
 				}
-				appenders := make(map[int]*tsdb.Appender)
-				for i := range archiver.namespace {
-					app := archiver.db.Appender()
-					appenders[i] = &app
-				}
+				appendCount := 0
 				for {
 					select {
 					case <-ft.C:
@@ -219,11 +216,20 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 						if len(matchedLabelsList) > 0 {
 							matchedLabels := matchedLabelsList[archiver.s.Index]
-							err = archiver.process(*appenders[archiver.s.Namespace], matchedLabels, startTime, endTime)
+							err = archiver.process(app, matchedLabels, startTime, endTime)
 							if err != nil {
 								return err
 							}
 							archiver.s.Index++
+							appendCount++
+						}
+
+						if appendCount > commitSize {
+							if err := app.Commit(); err != nil {
+								return err
+							}
+							app = archiver.db.Appender()
+							appendCount = 0
 						}
 
 						if archiver.s.Index == len(matchedLabelsList) {
@@ -238,11 +244,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 									<-wt.C
 								}
 
-								archiver.db.EnableCompactions()
-								if err := (*appenders[lastNamespace]).Commit(); err != nil {
+								if err := app.Commit(); err != nil {
 									return err
 								}
-								appenders[lastNamespace] = nil                                                                 // release appender
+
 								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
@@ -260,10 +265,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 
 								return nil
 							} else {
-								if err := (*appenders[lastNamespace]).Commit(); err != nil {
-									return err
-								}
-								appenders[lastNamespace] = nil                                                                 // release appender
 								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
 								if err := archiver.saveState(); err != nil {
 									return err
