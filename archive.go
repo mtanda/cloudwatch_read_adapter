@@ -19,8 +19,8 @@ import (
 	"github.com/prometheus/common/model"
 	prom_value "github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/tsdb"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb"
+	"github.com/prometheus/prometheus/tsdb/labels"
 	"golang.org/x/sync/errgroup"
 )
 

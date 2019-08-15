@@ -1,6 +1,6 @@
 package main
 
-import "github.com/prometheus/tsdb/labels"
+import "github.com/prometheus/prometheus/tsdb/labels"
 
 func (archiver *Archiver) ExposeSetTestData(l labels.Labels, points [][]int64) error {
 	app := archiver.db.Appender()

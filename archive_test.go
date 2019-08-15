@@ -9,7 +9,7 @@ import (
 	main "github.com/mtanda/cloudwatch_read_adapter"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/util/testutil"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb/labels"
 )
 
 func TestQuery(t *testing.T) {

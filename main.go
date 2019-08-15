@@ -204,7 +204,10 @@ func main() {
 
 	logLevel := promlog.AllowedLevel{}
 	logLevel.Set("info")
-	logger := promlog.New(logLevel)
+	format := promlog.AllowedFormat{}
+	format.Set("json")
+	config := promlog.Config{Level: &logLevel, Format: &format}
+	logger := promlog.New(&config)
 
 	readCfg, err := LoadConfig(cfg.configFile)
 	if err != nil {
