@@ -23,8 +23,7 @@ require (
 	github.com/prometheus/client_model v0.0.0-20190129233127-fd36f4220a90
 	github.com/prometheus/common v0.4.1
 	github.com/prometheus/procfs v0.0.2
-	github.com/prometheus/prometheus v0.0.0-20190709094220-4ef66003d985
-	github.com/prometheus/tsdb v0.9.1
+	github.com/prometheus/prometheus v2.12.0-rc.0
 	golang.org/x/net v0.0.0-20190403144856-b630fd6fe46b
 	golang.org/x/sync v0.0.0-20190227155943-e225da77a7e6
 	golang.org/x/sys v0.0.0-20190403152447-81d4e9dc473e

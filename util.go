@@ -9,7 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb/labels"
 )
 
 var invalidMetricNamePattern = regexp.MustCompile(`[^a-zA-Z0-9:_]`)
