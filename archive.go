@@ -161,6 +161,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			endTime := now.Truncate(archiver.interval)
 			startTime := endTime.Add(-archiver.interval)
 			nextStartTime := endTime.Add(archiver.interval).Add(timeMargin)
+			endTime = endTime.Add(-time.Duration(1) * time.Minute)
 			t.Reset(nextStartTime.Sub(now))
 
 			if archiver.isArchived(endTime.Add(-1*time.Second), archiver.namespace) {
