@@ -43,6 +43,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 
 	namespace := ""
 	debugMode := false
+	debugIndexMode := false
 	originalJobLabel := ""
 	matchers := make([]*prompb.LabelMatcher, 0)
 	for _, m := range q.Matchers {
@@ -52,6 +53,10 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		}
 		if m.Type == prompb.LabelMatcher_EQ && m.Name == "debug" {
 			debugMode = true
+			continue
+		}
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "debug_index" {
+			debugIndexMode = true
 			continue
 		}
 		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Namespace" {
@@ -98,6 +103,15 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	maximumStep := int64(math.Ceil(float64(q.Hints.StepMs) / float64(1000)))
 	if maximumStep == 0 {
 		maximumStep = 1 // q.Hints.StepMs == 0 in some query...
+	}
+
+	if debugIndexMode {
+		result, err := indexer.Query(q, maximumStep, lookbackDelta)
+		if err != nil {
+			level.Error(logger).Log("err", err)
+			return nil, fmt.Errorf("failed to get time series from index")
+		}
+		return result.slice(), nil
 	}
 
 	// get time series from past(archived) time range

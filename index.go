@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -17,6 +19,8 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
+	prom_value "github.com/prometheus/prometheus/pkg/value"
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/tsdb/labels"
 	"golang.org/x/sync/errgroup"
@@ -292,6 +296,83 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 	}
 
 	return matchedLabels, nil
+}
+
+func (indexer *Indexer) Query(q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
+	result := make(resultMap)
+
+	querier, err := indexer.db.Querier(q.Hints.StartMs, q.Hints.EndMs)
+	if err != nil {
+		return nil, err
+	}
+	defer querier.Close()
+
+	step := maximumStep
+
+	matchers, err := fromLabelMatchers(q.Matchers)
+	if err != nil {
+		return nil, err
+	}
+
+	ss, err := querier.Select(matchers...)
+	if err != nil {
+		return nil, err
+	}
+	for ss.Next() {
+		ts := &prompb.TimeSeries{}
+		s := ss.At()
+
+		labels := s.Labels()
+		sort.Slice(labels, func(i, j int) bool {
+			return labels[i].Name < labels[j].Name
+		})
+		id := ""
+		for _, label := range labels {
+			if label.Name == "MetricName" {
+				continue
+			}
+			ts.Labels = append(ts.Labels, prompb.Label{Name: label.Name, Value: label.Value})
+			id = id + label.Name + label.Value
+		}
+
+		lastTimestamp := int64(0)
+		lastValue := float64(0)
+		it := s.Iterator()
+		refTime := q.Hints.StartMs
+		for it.Next() && refTime <= q.Hints.EndMs {
+			t, v := it.At()
+			for refTime < lastTimestamp && step > 0 { // for safety, check step
+				refTime += (step * 1000)
+			}
+			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+				if step <= int64(lookbackDelta.Seconds()) && step > 60 && (t-lastTimestamp) > (step*1000) {
+					ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
+				}
+			}
+			lastTimestamp = t
+			lastValue = v
+		}
+		ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
+		if step <= int64(lookbackDelta.Seconds()) && step > 60 && (q.Hints.EndMs > lastTimestamp) && (lastTimestamp <= (q.Hints.EndMs - (step * 1000))) {
+			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
+		}
+
+		if _, ok := result[id]; ok {
+			result[id].Samples = append(result[id].Samples, ts.Samples...)
+		} else {
+			result[id] = ts
+		}
+	}
+
+	// sort by timestamp
+	for _, ts := range result {
+		sort.Slice(ts.Samples, func(i, j int) bool {
+			return ts.Samples[i].Timestamp < ts.Samples[j].Timestamp
+		})
+	}
+
+	return result, nil
 }
 
 type IndexerState struct {
