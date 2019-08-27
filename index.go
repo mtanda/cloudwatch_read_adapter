@@ -335,8 +335,7 @@ func (indexer *Indexer) Query(q *prompb.Query, maximumStep int64, lookbackDelta 
 			id = id + label.Name + label.Value
 		}
 
-		lastTimestamp := int64(0)
-		lastValue := float64(0)
+		lastTimestamp := q.Hints.StartMs
 		it := s.Iterator()
 		refTime := q.Hints.StartMs
 		for it.Next() && refTime <= q.Hints.EndMs {
@@ -344,16 +343,14 @@ func (indexer *Indexer) Query(q *prompb.Query, maximumStep int64, lookbackDelta 
 			for refTime < lastTimestamp && step > 0 { // for safety, check step
 				refTime += (step * 1000)
 			}
+			if step <= int64(lookbackDelta.Seconds()) && step > 60 && (t-lastTimestamp) > (step*1000) {
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
+			}
 			if (t > refTime) && (lastTimestamp > (refTime - (step * 1000))) {
-				ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
-				if step <= int64(lookbackDelta.Seconds()) && step > 60 && (t-lastTimestamp) > (step*1000) {
-					ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
-				}
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: v, Timestamp: t})
 			}
 			lastTimestamp = t
-			lastValue = v
 		}
-		ts.Samples = append(ts.Samples, prompb.Sample{Value: lastValue, Timestamp: lastTimestamp})
 		if step <= int64(lookbackDelta.Seconds()) && step > 60 && (q.Hints.EndMs > lastTimestamp) && (lastTimestamp <= (q.Hints.EndMs - (step * 1000))) {
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: lastTimestamp + (step * 1000)})
 		}
