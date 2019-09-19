@@ -242,6 +242,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 
 func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64, end int64) ([]labels.Labels, error) {
 	matchedLabels := make([]labels.Labels, 0)
+	dupCheck := make(map[string]bool)
 
 	querier, err := indexer.db.Querier(start, end)
 	if err != nil {
@@ -264,7 +265,11 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 	}
 	for ss.Next() {
 		s := ss.At()
+
 		_labels := s.Labels()
+		sort.Slice(_labels, func(i, j int) bool {
+			return _labels[i].Name < _labels[j].Name
+		})
 
 		// filter labels which has extra dimensions
 		if len(dimensions) != 0 {
@@ -282,8 +287,10 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 				continue
 			}
 		}
+		id := ""
 		hasMetricName := false
 		for _, label := range _labels {
+			id = id + label.Name + label.Value
 			if label.Name == "MetricName" {
 				hasMetricName = true
 			}
@@ -292,7 +299,10 @@ func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64,
 			continue
 		}
 
-		matchedLabels = append(matchedLabels, _labels)
+		if _, ok := dupCheck[id]; !ok {
+			matchedLabels = append(matchedLabels, _labels)
+			dupCheck[id] = true
+		}
 	}
 
 	return matchedLabels, nil
