@@ -215,7 +215,10 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 					case <-ft.C:
 						ft.Reset(1 * time.Second / time.Duration(cps))
 
-						if len(matchedLabelsList) > 0 {
+						if len(matchedLabelsList)-1 < archiver.s.Index {
+							// crash recovery
+							archiver.s.Index = 0
+						} else if len(matchedLabelsList) > 0 {
 							matchedLabels := matchedLabelsList[archiver.s.Index]
 							err = archiver.process(app, matchedLabels, startTime, endTime)
 							if err != nil {
@@ -229,6 +232,11 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 							if err := app.Commit(); err != nil {
 								return err
 							}
+
+							if err := archiver.saveState(); err != nil {
+								return err
+							}
+
 							app = archiver.db.Appender()
 							appendCount = 0
 						}
@@ -267,9 +275,6 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								return nil
 							} else {
 								archiver.s.Timestamp[archiver.namespace[lastNamespace]] = endTime.Add(-1 * time.Second).Unix() // cloudwatch endTime is exclusive
-								if err := archiver.saveState(); err != nil {
-									return err
-								}
 
 								level.Info(archiver.logger).Log("namespace", archiver.namespace[lastNamespace], "index", archiver.s.Index, "len", len(matchedLabelsList))
 								archiverTargetsProgress.WithLabelValues(archiver.namespace[lastNamespace]).Set(float64(archiver.s.Index))
