@@ -82,6 +82,13 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 	query.EndTime = aws.Time(time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000)))
 	queries = append(queries, query)
 
+	if region == "" {
+		region, err := GetDefaultRegion()
+		if err != nil {
+			return region, queries, err
+		}
+	}
+
 	return region, queries, nil
 }
 
