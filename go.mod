@@ -4,7 +4,7 @@ go 1.12
 
 require (
 	github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4
-	github.com/aws/aws-sdk-go v1.22.4
+	github.com/aws/aws-sdk-go v1.25.38
 	github.com/beorn7/perks v1.0.1
 	github.com/cespare/xxhash v1.1.0
 	github.com/go-kit/kit v0.9.0
