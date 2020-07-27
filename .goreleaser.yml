@@ -1,0 +1,43 @@
+builds:
+- main: ./
+  flags: -a -tags netgo
+  ldflags: |
+    -s -w
+  env:
+    - CGO_ENABLED=0
+  goos:
+    - linux
+    - darwin
+  goarch:
+    - amd64
+nfpms:
+  -
+    package_name: cloudwatch-read-adapter
+    file_name_template: 'cloudwatch-read-adapter_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}{{ if .Mips }}_{{ .Mips }}{{ end }}'
+    homepage: https://github.com/mtanda/cloudwatch_read_adapter
+    maintainer: Mitsuhiro Tanda
+    description: cloudwatch read adapter
+    license: Apache 2.0
+    replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: i386
+      amd64: x86_64
+    formats:
+      - deb
+      - rpm
+    files:
+      "packaging/deb/systemd/**": "/usr/lib/systemd/system"
+    scripts:
+      postinstall: "packaging/scripts/postinstall.sh"
+      postremove: "packaging/scripts/postremove.sh"
+      preremove: "packaging/scripts/preremove.sh"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
+    - '^cut:'
+    - '^typo'
