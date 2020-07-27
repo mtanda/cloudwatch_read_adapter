@@ -1,0 +1,1 @@
+ARGS="--config.file=/usr/local/etc/cloudwatch_read_adapter.yml --storage.tsdb.path=/var/lib/cloudwatch_read_adapter"

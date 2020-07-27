@@ -8,6 +8,7 @@ Group=nogroup
 Type=simple
 Restart=always
 RestartSec=30
+EnvironmentFile=/etc/default/cloudwatch_read_adapter
 ExecStart=/usr/local/bin/cloudwatch_read_adapter $ARGS
 TimeoutStopSec=20s
 
