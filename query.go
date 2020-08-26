@@ -59,7 +59,11 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 		case "Period":
 			v, err := strconv.ParseInt(m.Value, 10, 64)
 			if err != nil {
-				return region, queries, err
+				d, err := time.ParseDuration(m.Value)
+				if err != nil {
+					return region, queries, err
+				}
+				v = int64(d.Seconds())
 			}
 			maximumStep = int64(math.Max(float64(maximumStep), float64(60)))
 			if v < maximumStep {
@@ -167,7 +171,11 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 				if m.Type == prompb.LabelMatcher_EQ {
 					v, err := strconv.ParseInt(m.Value, 10, 64)
 					if err != nil {
-						return region, queries, err
+						d, err := time.ParseDuration(m.Value)
+						if err != nil {
+							return region, queries, err
+						}
+						v = int64(d.Seconds())
 					}
 					maximumStep = int64(math.Max(float64(maximumStep), float64(60)))
 					if v < maximumStep {
