@@ -42,6 +42,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	result := make(resultMap)
 
 	namespace := ""
+	period := ""
 	debugMode := false
 	debugIndexMode := false
 	originalJobLabel := ""
@@ -61,6 +62,9 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		}
 		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Namespace" {
 			namespace = m.Value
+		}
+		if m.Type == prompb.LabelMatcher_EQ && m.Name == "Period" {
+			period = m.Value
 		}
 		matchers = append(matchers, m)
 	}
@@ -115,7 +119,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 
 	// get time series from past(archived) time range
-	if q.Hints.StartMs < q.Hints.EndMs && archiver.isArchived(startTime, []string{namespace}) {
+	if period == "" && q.Hints.StartMs < q.Hints.EndMs && archiver.isArchived(startTime, []string{namespace}) {
 		if archiver.isExpired(startTime) && !indexer.isExpired(startTime, []string{namespace}) {
 			expiredTime := time.Now().UTC().Add(-archiver.retention)
 			if endTime.Before(expiredTime) {
