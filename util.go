@@ -47,8 +47,13 @@ func isExtendedStatistics(s string) bool {
 	return s != "Sum" && s != "SampleCount" && s != "Maximum" && s != "Minimum" && s != "Average"
 }
 
+var regionCache = ""
 func GetDefaultRegion() (string, error) {
 	var region string
+
+	if regionCache != "" {
+		return regionCache, nil
+	}
 
 	metadata := ec2metadata.New(session.New(), &aws.Config{
 		MaxRetries: aws.Int(0),
@@ -58,6 +63,9 @@ func GetDefaultRegion() (string, error) {
 		region, err = metadata.Region()
 		if err != nil {
 			return "", err
+		}
+		if region != "" {
+			regionCache = region
 		}
 	} else {
 		region = os.Getenv("AWS_REGION")
