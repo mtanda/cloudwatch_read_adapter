@@ -187,7 +187,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 		}
 		if len(query.Statistics) == 0 && len(query.ExtendedStatistics) == 0 {
 			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}
-			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p99.00")}
+			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p95.00"), aws.String("p99.00")}
 		}
 		query.StartTime = aws.Time(time.Unix(int64(q.Hints.StartMs/1000), int64(q.Hints.StartMs%1000*1000)))
 		query.EndTime = aws.Time(time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000)))
