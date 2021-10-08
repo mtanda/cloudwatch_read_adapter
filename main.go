@@ -38,7 +38,7 @@ type config struct {
 	storagePath string
 }
 
-func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDelta time.Duration, logger log.Logger) ([]*prompb.TimeSeries, error) {
+func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDelta time.Duration, logger log.Logger) ([]*prompb.TimeSeries, error) {
 	result := make(resultMap)
 
 	namespace := ""
@@ -76,7 +76,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
-		matchedLabelsList, err := indexer.getMatchedLabels(m, q.StartTimestampMs, q.EndTimestampMs)
+		matchedLabelsList, err := indexer.getMatchedLabels(ctx, m, q.StartTimestampMs, q.EndTimestampMs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
@@ -110,7 +110,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 	}
 
 	if debugIndexMode {
-		result, err := indexer.Query(q, maximumStep, lookbackDelta)
+		result, err := indexer.Query(ctx, q, maximumStep, lookbackDelta)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return nil, fmt.Errorf("failed to get time series from index")
@@ -134,7 +134,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for CloudWatch with index before archived period", "query", fmt.Sprintf("%+v", baq))
 			}
-			region, queries, err := getQueryWithIndex(&baq, indexer, maximumStep)
+			region, queries, err := getQueryWithIndex(ctx, &baq, indexer, maximumStep)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return nil, fmt.Errorf("failed to generate internal query")
@@ -156,7 +156,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
 			}
-			archivedResult, err := archiver.Query(&aq, maximumStep, lookbackDelta)
+			archivedResult, err := archiver.Query(ctx, &aq, maximumStep, lookbackDelta)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return nil, fmt.Errorf("failed to get time series from archive")
@@ -183,7 +183,7 @@ func runQuery(indexer *Indexer, archiver *Archiver, q *prompb.Query, lookbackDel
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for CloudWatch with index", "query", fmt.Sprintf("%+v", q))
 			}
-			region, queries, err = getQueryWithIndex(q, indexer, maximumStep)
+			region, queries, err = getQueryWithIndex(ctx, q, indexer, maximumStep)
 		}
 		if err != nil {
 			level.Error(logger).Log("err", err)
@@ -369,7 +369,7 @@ func main() {
 			return
 		}
 
-		timeSeries, err := runQuery(indexer, archiver, req.Queries[0], readCfg.LookbackDelta, logger)
+		timeSeries, err := runQuery(ctx, indexer, archiver, req.Queries[0], readCfg.LookbackDelta, logger)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

@@ -8,33 +8,25 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/tsdb/labels"
 )
 
 var invalidMetricNamePattern = regexp.MustCompile(`[^a-zA-Z0-9:_]`)
 
-func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]labels.Matcher, error) {
-	result := make([]labels.Matcher, 0, len(matchers))
+func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]*labels.Matcher, error) {
+	result := make([]*labels.Matcher, 0, len(matchers))
 	for _, matcher := range matchers {
-		var m labels.Matcher
-		var err error
+		var m *labels.Matcher
 		switch matcher.Type {
 		case prompb.LabelMatcher_EQ:
-			m = labels.NewEqualMatcher(matcher.Name, matcher.Value)
+			m = labels.MustNewMatcher(labels.MatchEqual, matcher.Name, matcher.Value)
 		case prompb.LabelMatcher_NEQ:
-			m = labels.Not(labels.NewEqualMatcher(matcher.Name, matcher.Value))
+			m = labels.MustNewMatcher(labels.MatchNotEqual, matcher.Name, matcher.Value)
 		case prompb.LabelMatcher_RE:
-			m, err = labels.NewRegexpMatcher(matcher.Name, "^(?:"+matcher.Value+")$")
-			if err != nil {
-				return nil, err
-			}
+			m = labels.MustNewMatcher(labels.MatchRegexp, matcher.Name, "^(?:"+matcher.Value+")$")
 		case prompb.LabelMatcher_NRE:
-			m, err = labels.NewRegexpMatcher(matcher.Name, "^(?:"+matcher.Value+")$")
-			if err != nil {
-				return nil, err
-			}
-			m = labels.Not(m)
+			m = labels.MustNewMatcher(labels.MatchNotRegexp, matcher.Name, "^(?:"+matcher.Value+")$")
 		default:
 			return nil, fmt.Errorf("invalid matcher type")
 		}
@@ -48,6 +40,7 @@ func isExtendedStatistics(s string) bool {
 }
 
 var regionCache = ""
+
 func GetDefaultRegion() (string, error) {
 	var region string
 

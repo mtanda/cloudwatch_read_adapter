@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
 	"github.com/prometheus/client_golang/prometheus"
-	prom_value "github.com/prometheus/prometheus/pkg/value"
+	prom_value "github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -96,7 +96,7 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 	return region, queries, nil
 }
 
-func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
+func getQueryWithIndex(ctx context.Context, q *prompb.Query, indexer *Indexer, maximumStep int64) (string, []*cloudwatch.GetMetricStatisticsInput, error) {
 	region := ""
 	queries := make([]*cloudwatch.GetMetricStatisticsInput, 0)
 
@@ -120,7 +120,7 @@ func getQueryWithIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) (st
 		// expand enough long period to match index
 		iq.Hints.StartMs = time.Unix(q.Hints.EndMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
 	}
-	matchedLabelsList, err := indexer.getMatchedLabels(matchers, iq.Hints.StartMs, q.Hints.EndMs)
+	matchedLabelsList, err := indexer.getMatchedLabels(ctx, matchers, iq.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return region, queries, err
 	}
