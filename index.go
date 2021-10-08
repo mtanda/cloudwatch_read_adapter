@@ -97,7 +97,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		logger,
 		registry,
 		&tsdb.Options{
-			RetentionDuration: uint64(retention),
+			RetentionDuration: uint64(retention) / 1000 / 1000, // milliseconds
 			BlockRanges: []int64{
 				2 * 60 * 60 * 1000,
 				6 * 60 * 60 * 1000,

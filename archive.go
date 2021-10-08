@@ -93,7 +93,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		logger,
 		registry,
 		&tsdb.Options{
-			RetentionDuration: uint64(retention),
+			RetentionDuration: uint64(retention) / 1000 / 1000, // milliseconds
 			BlockRanges: []int64{
 				24 * 60 * 60 * 1000,
 				72 * 60 * 60 * 1000,
