@@ -1,6 +1,6 @@
 module github.com/mtanda/cloudwatch_read_adapter
 
-go 1.12
+go 1.17
 
 require (
 	github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4
