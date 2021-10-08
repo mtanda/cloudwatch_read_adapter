@@ -27,8 +27,6 @@ nfpms:
     formats:
       - deb
       - rpm
-    files:
-      "packaging/deb/systemd/**": "/usr/lib/systemd/system"
     contents:
       - src: "packaging/deb/etc/default/cloudwatch_read_adapter"
         dst: "/etc/default/cloudwatch_read_adapter"
@@ -36,6 +34,8 @@ nfpms:
       - src: "packaging/deb/usr/local/etc/cloudwatch_read_adapter.yml"
         dst: "/usr/local/etc/cloudwatch_read_adapter.yml"
         type: config
+      - src: "packaging/deb/systemd"
+        dst: "/usr/lib/systemd/system"
     scripts:
       postinstall: "packaging/scripts/postinstall.sh"
       postremove: "packaging/scripts/postremove.sh"
