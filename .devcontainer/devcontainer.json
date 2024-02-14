@@ -1,0 +1,20 @@
+{
+	"name": "cloudwatch-read-adapter",
+	"dockerComposeFile": [
+		"./docker-compose.yml"
+	],
+	"service": "cloudwatch-read-adapter",
+	"runServices": [
+		"prometheus"
+	],
+	"workspaceFolder": "/workspace",
+	"remoteUser": "vscode",
+	"postAttachCommand": ".devcontainer/postAttach.sh",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.Go"
+			]
+		}
+	}
+}
