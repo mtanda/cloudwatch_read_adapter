@@ -1,0 +1,42 @@
+version: "3.8"
+
+volumes:
+  prometheus_data: {}
+  gohome: {}
+  awscli: {}
+
+networks:
+  promapi:
+
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus/:/etc/prometheus/
+      - prometheus_data:/prometheus
+    ports:
+      - 9090:9090
+    networks:
+      - promapi
+    restart: always
+
+  cloudwatch-read-adapter:
+    build:
+      context: ./cloudwatch-read-adapter
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    volumes:
+      - ..:/workspace:cached
+      - gohome:/home/vscode/go:cached
+      - ~/.aws/credentials:/home/vscode/.aws/credentials:ro
+      - ~/.aws/config:/home/vscode/.aws/config:ro
+      - awscli:/home/vscode/.aws/cli:cached
+    networks:
+      - promapi
+    user: vscode
+    depends_on:
+      - prometheus
