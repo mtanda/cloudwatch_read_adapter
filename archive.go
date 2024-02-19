@@ -137,6 +137,9 @@ func (archiver *Archiver) start(eg *errgroup.Group, ctx context.Context) {
 	level.Info(archiver.logger).Log("msg", fmt.Sprintf("archive namespace = %+v", archiver.namespace))
 	if state, err := archiver.loadState(); err == nil {
 		archiver.s = state
+		if archiver.s.Timestamp == nil {
+			archiver.s.Timestamp = make(map[string]int64)
+		}
 		level.Info(archiver.logger).Log("msg", "state loaded", "timestamp", fmt.Sprintf("%+v", archiver.s.Timestamp), "namespace", archiver.namespace[archiver.s.Namespace], "index", archiver.s.Index)
 	} else {
 		level.Error(archiver.logger).Log("err", err)
