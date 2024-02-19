@@ -1,13 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
 )
@@ -48,22 +48,23 @@ func GetDefaultRegion() (string, error) {
 		return regionCache, nil
 	}
 
-	metadata := ec2metadata.New(session.New(), &aws.Config{
-		MaxRetries: aws.Int(0),
-	})
-	if metadata.Available() {
-		var err error
-		region, err = metadata.Region()
-		if err != nil {
-			return "", err
-		}
-		if region != "" {
-			regionCache = region
-		}
-	} else {
+	ctx := context.TODO()
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRetryMaxAttempts(0))
+	if err != nil {
+		return "", err
+	}
+
+	client := imds.NewFromConfig(cfg)
+	response, err := client.GetRegion(ctx, &imds.GetRegionInput{})
+	if err != nil {
 		region = os.Getenv("AWS_REGION")
 		if region == "" {
 			region = "us-east-1"
+		}
+	} else {
+		region = response.Region
+		if region != "" {
+			regionCache = region
 		}
 	}
 

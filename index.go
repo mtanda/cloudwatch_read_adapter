@@ -9,12 +9,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awsutil"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatch"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,9 +59,9 @@ func init() {
 }
 
 type Indexer struct {
-	cloudwatch           *cloudwatch.CloudWatch
-	ec2                  *ec2.EC2
-	dynamodb             *dynamodb.DynamoDB
+	cloudwatch           *cloudwatch.Client
+	ec2                  *ec2.Client
+	dynamodb             *dynamodb.Client
 	db                   *tsdb.DB
 	region               string
 	namespace            []string
@@ -83,14 +83,14 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		return nil, err
 	}
 
-	awsCfg := &aws.Config{Region: aws.String(cfg.Region[0])}
-	sess, err := session.NewSession(awsCfg)
+	ctx := context.TODO()
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region[0]))
 	if err != nil {
 		return nil, err
 	}
-	cloudwatch := cloudwatch.New(sess, awsCfg)
-	ec2 := ec2.New(sess, awsCfg)
-	dynamodb := dynamodb.New(sess, awsCfg)
+	cloudwatch := cloudwatch.NewFromConfig(awsCfg)
+	ec2 := ec2.NewFromConfig(awsCfg)
+	dynamodb := dynamodb.NewFromConfig(awsCfg)
 
 	registry := prometheus.NewRegistry()
 	db, err := tsdb.Open(
@@ -166,21 +166,20 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				level.Info(indexer.logger).Log("msg", fmt.Sprintf("indexing namespace = %s", namespace))
 
 				var resp cloudwatch.ListMetricsOutput
-				err := indexer.cloudwatch.ListMetricsPages(&cloudwatch.ListMetricsInput{
+				paginator := cloudwatch.NewListMetricsPaginator(indexer.cloudwatch, &cloudwatch.ListMetricsInput{
 					Namespace: aws.String(namespace),
-				},
-					func(page *cloudwatch.ListMetricsOutput, lastPage bool) bool {
-						metrics, _ := awsutil.ValuesAtPath(page, "Metrics")
-						for _, metric := range metrics {
-							resp.Metrics = append(resp.Metrics, metric.(*cloudwatch.Metric))
-						}
-						cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "success").Add(float64(1))
-						return !lastPage
-					})
-				if err != nil {
-					cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "error").Add(float64(1))
-					level.Error(indexer.logger).Log("err", err)
-					continue // ignore temporary error
+				})
+				for paginator.HasMorePages() {
+					out, err := paginator.NextPage(ctx)
+					if err != nil {
+						cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "error").Add(float64(1))
+						level.Error(indexer.logger).Log("err", err)
+						continue // ignore temporary error
+					}
+					for _, metric := range out.Metrics {
+						resp.Metrics = append(resp.Metrics, metric)
+					}
+					cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "success").Add(float64(1))
 				}
 
 				app := indexer.db.Appender(ctx)
@@ -439,29 +438,30 @@ func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
 	return !indexer.isIndexed(t, namespace)
 }
 
-func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch.Metric) ([]*cloudwatch.Metric, error) {
-	filteredMetrics := make([]*cloudwatch.Metric, 0)
+func (indexer *Indexer) filterOldMetrics(namespace string, metrics []types.Metric) ([]types.Metric, error) {
+	filteredMetrics := make([]types.Metric, 0)
 	filterMap := make(map[string]bool)
 
+	ctx := context.TODO()
 	switch namespace {
 	case "AWS/EC2":
-		err := indexer.ec2.DescribeInstancesPages(&ec2.DescribeInstancesInput{},
-			func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
-				for _, r := range page.Reservations {
-					for _, i := range r.Instances {
-						if *i.State.Name == "running" || *i.State.Name == "shutting-down" || *i.State.Name == "stopping" {
+		paginator := ec2.NewDescribeInstancesPaginator(indexer.ec2, &ec2.DescribeInstancesInput{})
+		for paginator.HasMorePages() {
+			out, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, r := range out.Reservations {
+				for _, i := range r.Instances {
+					if i.State.Name == "running" || i.State.Name == "shutting-down" || i.State.Name == "stopping" {
+						filterMap[*i.InstanceId] = true
+					} else {
+						if (*i.LaunchTime).After(time.Now().UTC().Add(-indexer.interval * 3)) {
 							filterMap[*i.InstanceId] = true
-						} else {
-							if (*i.LaunchTime).After(time.Now().UTC().Add(-indexer.interval * 3)) {
-								filterMap[*i.InstanceId] = true
-							}
 						}
 					}
 				}
-				return !lastPage
-			})
-		if err != nil {
-			return nil, err
+			}
 		}
 		for _, metric := range metrics {
 			leave := true
@@ -475,22 +475,21 @@ func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch
 			}
 		}
 	case "AWS/EBS":
-		ctx := context.Background()
-		err := indexer.ec2.DescribeVolumesPagesWithContext(ctx, &ec2.DescribeVolumesInput{},
-			func(page *ec2.DescribeVolumesOutput, lastPage bool) bool {
-				for _, v := range page.Volumes {
-					if *v.State == "in-use" || *v.State == "deleting" {
+		paginator := ec2.NewDescribeVolumesPaginator(indexer.ec2, &ec2.DescribeVolumesInput{})
+		for paginator.HasMorePages() {
+			out, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, v := range out.Volumes {
+				if v.State == "in-use" || v.State == "deleting" {
+					filterMap[*v.VolumeId] = true
+				} else {
+					if (*v.CreateTime).After(time.Now().UTC().Add(-indexer.interval * 3)) {
 						filterMap[*v.VolumeId] = true
-					} else {
-						if (*v.CreateTime).After(time.Now().UTC().Add(-indexer.interval * 3)) {
-							filterMap[*v.VolumeId] = true
-						}
 					}
 				}
-				return !lastPage
-			})
-		if err != nil {
-			return nil, err
+			}
 		}
 		for _, metric := range metrics {
 			leave := true
@@ -504,15 +503,15 @@ func (indexer *Indexer) filterOldMetrics(namespace string, metrics []*cloudwatch
 			}
 		}
 	case "AWS/DynamoDB":
-		err := indexer.dynamodb.ListTablesPages(&dynamodb.ListTablesInput{},
-			func(page *dynamodb.ListTablesOutput, lastPage bool) bool {
-				for _, v := range page.TableNames {
-					filterMap[*v] = true
-				}
-				return !lastPage
-			})
-		if err != nil {
-			return nil, err
+		paginator := dynamodb.NewListTablesPaginator(indexer.dynamodb, &dynamodb.ListTablesInput{})
+		for paginator.HasMorePages() {
+			out, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, v := range out.TableNames {
+				filterMap[v] = true
+			}
 		}
 		for _, metric := range metrics {
 			leave := true

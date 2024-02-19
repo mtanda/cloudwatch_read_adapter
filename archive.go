@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -57,13 +58,13 @@ func init() {
 }
 
 type Archiver struct {
-	cloudwatch         *cloudwatch.CloudWatch
+	cloudwatch         *cloudwatch.Client
 	db                 *tsdb.DB
 	indexer            *Indexer
 	region             string
 	namespace          []string
-	statistics         []*string
-	extendedStatistics []*string
+	statistics         []string
+	extendedStatistics []string
 	interval           time.Duration
 	retention          time.Duration
 	s                  *ArchiverState
@@ -82,12 +83,12 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		return nil, err
 	}
 
-	awsCfg := &aws.Config{Region: aws.String(cfg.Region[0])}
-	sess, err := session.NewSession(awsCfg)
+	ctx := context.TODO()
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region[0]))
 	if err != nil {
 		return nil, err
 	}
-	cloudwatch := cloudwatch.New(sess, awsCfg)
+	cloudwatch := cloudwatch.NewFromConfig(awsCfg)
 
 	registry := prometheus.NewRegistry()
 	db, err := tsdb.Open(
@@ -117,8 +118,8 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		indexer:            indexer,
 		region:             cfg.Region[0],
 		namespace:          cfg.Namespace,
-		statistics:         []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")},
-		extendedStatistics: []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p95.00"), aws.String("p99.00")}, // TODO: add to config
+		statistics:         []string{"Sum", "SampleCount", "Maximum", "Minimum", "Average"},
+		extendedStatistics: []string{"p50.00", "p90.00", "p95.00", "p99.00"}, // TODO: add to config
 		interval:           time.Duration(24/4) * time.Hour,
 		retention:          time.Duration(retention),
 		s:                  s,
@@ -355,9 +356,9 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 				params.MetricName = aws.String(label.Value)
 			default:
 				if params.Dimensions == nil {
-					params.Dimensions = make([]*cloudwatch.Dimension, 0)
+					params.Dimensions = make([]types.Dimension, 0)
 				}
-				params.Dimensions = append(params.Dimensions, &cloudwatch.Dimension{
+				params.Dimensions = append(params.Dimensions, types.Dimension{
 					Name:  aws.String(label.Name),
 					Value: aws.String(label.Value),
 				})
@@ -366,9 +367,12 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 				params.MetricName = aws.String(oldMetricName) // backward compatibility
 			}
 		}
-		params.Statistics = archiver.statistics
+		params.Statistics = make([]types.Statistic, 0)
+		for _, s := range archiver.statistics {
+			params.Statistics = append(params.Statistics, types.Statistic(s))
+		}
 		params.ExtendedStatistics = archiver.extendedStatistics
-		params.Period = aws.Int64(int64(period))
+		params.Period = aws.Int32(int32(period))
 		params.StartTime = aws.Time(startTime)
 		params.EndTime = aws.Time(endTime)
 
@@ -377,7 +381,8 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 			return fmt.Errorf("missing parameter")
 		}
 
-		resp, err = archiver.cloudwatch.GetMetricStatistics(params)
+		ctx := context.TODO()
+		resp, err = archiver.cloudwatch.GetMetricStatistics(ctx, params)
 		if err != nil {
 			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *params.Namespace, "archive", "error").Add(float64(1))
 			return err
@@ -393,7 +398,7 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 		return resp.Datapoints[i].Timestamp.Before(*resp.Datapoints[j].Timestamp)
 	})
 
-	paramStatistics := append(params.Statistics, params.ExtendedStatistics...)
+	paramStatistics := append(archiver.statistics, archiver.extendedStatistics...)
 	refs := make(map[string]storage.SeriesRef)
 	for _, dp := range resp.Datapoints {
 		for _, s := range paramStatistics {
@@ -403,8 +408,8 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 			//}
 
 			value := 0.0
-			if !isExtendedStatistics(*s) {
-				switch *s {
+			if !isExtendedStatistics(s) {
+				switch s {
 				case "Sum":
 					value = *dp.Sum
 				case "SampleCount":
@@ -420,7 +425,7 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 				if dp.ExtendedStatistics == nil {
 					continue
 				}
-				value = *dp.ExtendedStatistics[*s]
+				value = dp.ExtendedStatistics[s]
 			}
 
 			l := make(labels.Labels, 0)
@@ -431,16 +436,16 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 			for _, dimension := range params.Dimensions {
 				l = append(l, labels.Label{Name: *dimension.Name, Value: *dimension.Value})
 			}
-			if !isExtendedStatistics(*s) {
-				l = append(l, labels.Label{Name: "Statistic", Value: *s})
+			if !isExtendedStatistics(s) {
+				l = append(l, labels.Label{Name: "Statistic", Value: s})
 			} else {
-				l = append(l, labels.Label{Name: "ExtendedStatistic", Value: *s})
+				l = append(l, labels.Label{Name: "ExtendedStatistic", Value: s})
 			}
 			var errAdd error
-			if _, ok := refs[*s]; ok {
-				refs[*s], errAdd = app.Append(refs[*s], l, dp.Timestamp.Unix()*1000, value)
+			if _, ok := refs[s]; ok {
+				refs[s], errAdd = app.Append(refs[s], l, dp.Timestamp.Unix()*1000, value)
 			} else {
-				refs[*s], errAdd = app.Append(0, l, dp.Timestamp.Unix()*1000, value)
+				refs[s], errAdd = app.Append(0, l, dp.Timestamp.Unix()*1000, value)
 			}
 			if errAdd != nil {
 				level.Error(archiver.logger).Log("err", errAdd)
