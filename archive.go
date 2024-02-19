@@ -209,6 +209,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 				if err := app.Commit(); err != nil {
 					return err
 				}
+				app = archiver.db.Appender(ctx)
 				appendCount := 0
 				for {
 					select {
