@@ -10,6 +10,9 @@
 	"workspaceFolder": "/workspace",
 	"remoteUser": "vscode",
 	"postAttachCommand": ".devcontainer/postAttach.sh",
+	"containerEnv": {
+		"SHELL": "/bin/bash"
+	},
 	"customizations": {
 		"vscode": {
 			"extensions": [
