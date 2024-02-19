@@ -7,9 +7,9 @@ import (
 
 	"github.com/go-kit/kit/log"
 	main "github.com/mtanda/cloudwatch_read_adapter"
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/util/testutil"
-	"github.com/prometheus/prometheus/tsdb/labels"
 )
 
 func TestQuery(t *testing.T) {

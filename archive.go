@@ -17,10 +17,12 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
-	prom_value "github.com/prometheus/prometheus/pkg/value"
+	"github.com/prometheus/prometheus/model/labels"
+	prom_value "github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
-	"github.com/prometheus/prometheus/tsdb/labels"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -93,13 +95,11 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		logger,
 		registry,
 		&tsdb.Options{
-			RetentionDuration: uint64(retention) / 1000 / 1000, // milliseconds
-			BlockRanges: []int64{
-				24 * 60 * 60 * 1000,
-				72 * 60 * 60 * 1000,
-			},
-			AllowOverlappingBlocks: false,
+			RetentionDuration: time.Duration(retention).Milliseconds(),
+			MinBlockDuration:  (time.Duration(24) * time.Hour).Milliseconds(),
+			MaxBlockDuration:  (time.Duration(72) * time.Hour).Milliseconds(),
 		},
+		nil,
 	)
 	if err != nil {
 		return nil, err
@@ -194,21 +194,22 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 			eg, actx := errgroup.WithContext(ctx)
 			(*eg).Go(func() error {
 				level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.s.Namespace]))
-				matchedLabelsList, err := archiver.getMatchedLabelsList(archiver.namespace[archiver.s.Namespace], startTime, endTime)
+				matchedLabelsList, err := archiver.getMatchedLabelsList(ctx, archiver.namespace[archiver.s.Namespace], startTime, endTime)
 				if err != nil {
 					return err
 				}
 				archiverTargetsTotal.WithLabelValues(archiver.namespace[archiver.s.Namespace]).Set(float64(len(matchedLabelsList)))
 
-				app := archiver.db.Appender()
+				app := archiver.db.Appender(ctx)
 				l := make(labels.Labels, 0)
 				l = append(l, labels.Label{Name: "__name__", Value: "dummy"})
-				if _, err = app.Add(l, startTime.Unix()*1000, 0); err != nil {
+				if _, err = app.Append(0, l, startTime.Unix()*1000, 0); err != nil {
 					return err
 				}
 				if err := app.Commit(); err != nil {
 					return err
 				}
+				app = archiver.db.Appender(ctx)
 				appendCount := 0
 				for {
 					select {
@@ -237,7 +238,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								return err
 							}
 
-							app = archiver.db.Appender()
+							app = archiver.db.Appender(ctx)
 							appendCount = 0
 						}
 
@@ -284,7 +285,7 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 								archiver.s.Index = 0
 
 								level.Info(archiver.logger).Log("msg", fmt.Sprintf("archiving namespace = %s", archiver.namespace[archiver.s.Namespace]))
-								matchedLabelsList, err = archiver.getMatchedLabelsList(archiver.namespace[archiver.s.Namespace], startTime, endTime)
+								matchedLabelsList, err = archiver.getMatchedLabelsList(ctx, archiver.namespace[archiver.s.Namespace], startTime, endTime)
 								if err != nil {
 									return err
 								}
@@ -317,20 +318,20 @@ func (archiver *Archiver) archive(ctx context.Context) error {
 	}
 }
 
-func (archiver *Archiver) getMatchedLabelsList(namespace string, startTime time.Time, endTime time.Time) ([]labels.Labels, error) {
-	matchers := []labels.Matcher{labels.NewEqualMatcher("Namespace", namespace)}
+func (archiver *Archiver) getMatchedLabelsList(ctx context.Context, namespace string, startTime time.Time, endTime time.Time) ([]labels.Labels, error) {
+	matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "Namespace", namespace)}
 	var matchedLabelsList []labels.Labels
 	var err error
 	if archiver.indexer.isIndexed(endTime, []string{namespace}) {
-		matchedLabelsList, err = archiver.indexer.getMatchedLabels(matchers, startTime.Unix()*1000, endTime.Unix()*1000)
+		matchedLabelsList, err = archiver.indexer.getMatchedLabels(ctx, matchers, startTime.Unix()*1000, endTime.Unix()*1000)
 	} else {
-		matchedLabelsList, err = archiver.indexer.getMatchedLabels(matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo[namespace]*1000)
+		matchedLabelsList, err = archiver.indexer.getMatchedLabels(ctx, matchers, startTime.Unix()*1000, archiver.indexer.s.TimestampTo[namespace]*1000)
 	}
 
 	return matchedLabelsList, err
 }
 
-func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, startTime time.Time, endTime time.Time) error {
+func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, startTime time.Time, endTime time.Time) error {
 	timeAlignment := 60
 
 	var resp *cloudwatch.GetMetricStatisticsOutput
@@ -390,7 +391,7 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 	})
 
 	paramStatistics := append(params.Statistics, params.ExtendedStatistics...)
-	refs := make(map[string]uint64)
+	refs := make(map[string]storage.SeriesRef)
 	for _, dp := range resp.Datapoints {
 		for _, s := range paramStatistics {
 			// TODO: drop Average/Maximum/Minium in certain condition
@@ -434,9 +435,9 @@ func (archiver *Archiver) process(app tsdb.Appender, _labels labels.Labels, star
 			}
 			var errAdd error
 			if _, ok := refs[*s]; ok {
-				errAdd = app.AddFast(refs[*s], dp.Timestamp.Unix()*1000, value)
+				refs[*s], errAdd = app.Append(refs[*s], l, dp.Timestamp.Unix()*1000, value)
 			} else {
-				refs[*s], errAdd = app.Add(l, dp.Timestamp.Unix()*1000, value)
+				refs[*s], errAdd = app.Append(0, l, dp.Timestamp.Unix()*1000, value)
 			}
 			if errAdd != nil {
 				level.Error(archiver.logger).Log("err", errAdd)
@@ -482,7 +483,7 @@ func (archiver *Archiver) loadState() (*ArchiverState, error) {
 	return &state, nil
 }
 
-func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
+func (archiver *Archiver) Query(ctx context.Context, q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 
 	matchers, err := fromLabelMatchers(q.Matchers)
@@ -503,10 +504,7 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average
-	ss, err := querier.Select(matchers...)
-	if err != nil {
-		return nil, err
-	}
+	ss := querier.Select(ctx, false, nil, matchers...)
 	for ss.Next() {
 		ts := &prompb.TimeSeries{}
 		s := ss.At()
@@ -525,9 +523,9 @@ func (archiver *Archiver) Query(q *prompb.Query, maximumStep int64, lookbackDelt
 		}
 
 		lastTimestamp := q.Hints.StartMs
-		it := s.Iterator()
+		it := s.Iterator(nil)
 		refTime := q.Hints.StartMs
-		for it.Next() && refTime <= q.Hints.EndMs {
+		for it.Next() != chunkenc.ValNone && refTime <= q.Hints.EndMs {
 			t, v := it.At()
 			for refTime < lastTimestamp && step > 0 { // for safety, check step
 				refTime += (step * 1000)
