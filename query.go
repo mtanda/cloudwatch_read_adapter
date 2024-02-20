@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_value "github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
@@ -25,7 +26,7 @@ var (
 		},
 		[]string{"api", "namespace", "from", "status"},
 	)
-	clientCache = make(map[string]*cloudwatch.CloudWatch)
+	clientCache = make(map[string]*cloudwatch.Client)
 )
 
 func init() {
@@ -53,9 +54,9 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 		case "MetricName":
 			query.MetricName = aws.String(m.Value)
 		case "Statistic":
-			query.Statistics = []*string{aws.String(m.Value)}
+			query.Statistics = []types.Statistic{types.Statistic(m.Value)}
 		case "ExtendedStatistic":
-			query.ExtendedStatistics = []*string{aws.String(m.Value)}
+			query.ExtendedStatistics = []string{m.Value}
 		case "Period":
 			v, err := strconv.ParseInt(m.Value, 10, 64)
 			if err != nil {
@@ -69,10 +70,10 @@ func getQueryWithoutIndex(q *prompb.Query, indexer *Indexer, maximumStep int64) 
 			if v < maximumStep {
 				v = maximumStep
 			}
-			query.Period = aws.Int64(v)
+			query.Period = aws.Int32(int32(v))
 		default:
 			if m.Value != "" {
-				query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
+				query.Dimensions = append(query.Dimensions, types.Dimension{
 					Name:  aws.String(m.Name),
 					Value: aws.String(m.Value),
 				})
@@ -141,10 +142,10 @@ func getQueryWithIndex(ctx context.Context, q *prompb.Query, indexer *Indexer, m
 				query.MetricName = aws.String(label.Value)
 			default:
 				if query.Dimensions == nil {
-					query.Dimensions = make([]*cloudwatch.Dimension, 0)
+					query.Dimensions = make([]types.Dimension, 0)
 				}
 				if label.Value != "" {
-					query.Dimensions = append(query.Dimensions, &cloudwatch.Dimension{
+					query.Dimensions = append(query.Dimensions, types.Dimension{
 						Name:  aws.String(label.Name),
 						Value: aws.String(label.Value),
 					})
@@ -158,13 +159,16 @@ func getQueryWithIndex(ctx context.Context, q *prompb.Query, indexer *Indexer, m
 			if !(m.Type == prompb.LabelMatcher_EQ || m.Type == prompb.LabelMatcher_RE) {
 				continue // only support equal matcher or regex matcher with alternation
 			}
-			statistics := make([]*string, 0)
+			statistics := make([]string, 0)
 			for _, s := range strings.Split(m.Value, "|") {
-				statistics = append(statistics, aws.String(s))
+				statistics = append(statistics, s)
 			}
 			switch m.Name {
 			case "Statistic":
-				query.Statistics = statistics
+				query.Statistics = make([]types.Statistic, 0)
+				for _, s := range statistics {
+					query.Statistics = append(query.Statistics, types.Statistic(s))
+				}
 			case "ExtendedStatistic":
 				query.ExtendedStatistics = statistics
 			case "Period":
@@ -181,13 +185,13 @@ func getQueryWithIndex(ctx context.Context, q *prompb.Query, indexer *Indexer, m
 					if v < maximumStep {
 						v = maximumStep
 					}
-					query.Period = aws.Int64(v)
+					query.Period = aws.Int32(int32(v))
 				}
 			}
 		}
 		if len(query.Statistics) == 0 && len(query.ExtendedStatistics) == 0 {
-			query.Statistics = []*string{aws.String("Sum"), aws.String("SampleCount"), aws.String("Maximum"), aws.String("Minimum"), aws.String("Average")}
-			query.ExtendedStatistics = []*string{aws.String("p50.00"), aws.String("p90.00"), aws.String("p95.00"), aws.String("p99.00")}
+			query.Statistics = []types.Statistic{types.Statistic("Sum"), types.Statistic("SampleCount"), types.Statistic("Maximum"), types.Statistic("Minimum"), types.Statistic("Average")}
+			query.ExtendedStatistics = []string{"p50.00", "p90.00", "p95.00", "p99.00"}
 		}
 		query.StartTime = aws.Time(time.Unix(int64(q.Hints.StartMs/1000), int64(q.Hints.StartMs%1000*1000)))
 		query.EndTime = aws.Time(time.Unix(int64(q.Hints.EndMs/1000), int64(q.Hints.EndMs%1000*1000)))
@@ -205,19 +209,19 @@ func isSingleStatistic(queries []*cloudwatch.GetMetricStatisticsInput) bool {
 		}
 		if len(query.Statistics) == 1 {
 			if s == "" {
-				s = *query.Statistics[0]
+				s = string(query.Statistics[0])
 				continue
 			}
-			if s != *query.Statistics[0] {
+			if s != string(query.Statistics[0]) {
 				return false
 			}
 		}
 		if len(query.ExtendedStatistics) == 1 {
 			if s == "" {
-				s = *query.ExtendedStatistics[0]
+				s = query.ExtendedStatistics[0]
 				continue
 			}
-			if s != *query.ExtendedStatistics[0] {
+			if s != query.ExtendedStatistics[0] {
 				return false
 			}
 		}
@@ -254,8 +258,9 @@ func queryCloudWatch(region string, queries []*cloudwatch.GetMetricStatisticsInp
 }
 
 func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
+	ctx := context.TODO()
 	result := make(resultMap)
-	svc, err := getClient(region)
+	svc, err := getClient(ctx, region)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +289,7 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 		if queryTimeRange/float64(period) >= 1440 {
 			period = int64(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * int64(periodUnit)
 		}
-		query.Period = aws.Int64(period)
+		query.Period = aws.Int32(int32(period))
 		highResolution = false
 	}
 
@@ -300,7 +305,7 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 		}
 		query.EndTime = aws.Time(startTime)
 
-		partResp, err := svc.GetMetricStatistics(query)
+		partResp, err := svc.GetMetricStatistics(ctx, query)
 		if err != nil {
 			cloudwatchApiCalls.WithLabelValues("GetMetricStatistics", *query.Namespace, "query", "error").Add(float64(1))
 			return result, err
@@ -317,7 +322,11 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	}
 
 	// make time series
-	paramStatistics := append(query.Statistics, query.ExtendedStatistics...)
+	statistics := make([]string, 0)
+	for _, s := range query.Statistics {
+		statistics = append(statistics, string(s))
+	}
+	paramStatistics := append(statistics, query.ExtendedStatistics...)
 	tsm := make(map[string]*prompb.TimeSeries)
 	for _, s := range paramStatistics {
 		ts := &prompb.TimeSeries{}
@@ -327,12 +336,12 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 		for _, d := range query.Dimensions {
 			ts.Labels = append(ts.Labels, prompb.Label{Name: *d.Name, Value: *d.Value})
 		}
-		if !isExtendedStatistics(*s) {
-			ts.Labels = append(ts.Labels, prompb.Label{Name: "Statistic", Value: *s})
+		if !isExtendedStatistics(s) {
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "Statistic", Value: s})
 		} else {
-			ts.Labels = append(ts.Labels, prompb.Label{Name: "ExtendedStatistic", Value: *s})
+			ts.Labels = append(ts.Labels, prompb.Label{Name: "ExtendedStatistic", Value: s})
 		}
-		tsm[*s] = ts
+		tsm[s] = ts
 	}
 
 	sort.Slice(resp.Datapoints, func(i, j int) bool {
@@ -342,8 +351,8 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	for _, dp := range resp.Datapoints {
 		for _, s := range paramStatistics {
 			value := 0.0
-			if !isExtendedStatistics(*s) {
-				switch *s {
+			if !isExtendedStatistics(s) {
+				switch s {
 				case "Sum":
 					value = *dp.Sum
 				case "SampleCount":
@@ -359,11 +368,11 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 				if dp.ExtendedStatistics == nil {
 					continue
 				}
-				value = *dp.ExtendedStatistics[*s]
+				value = dp.ExtendedStatistics[s]
 			}
-			ts := tsm[*s]
+			ts := tsm[s]
 			if *query.Period > 60 && !lastTimestamp.IsZero() && lastTimestamp.Add(time.Duration(*query.Period)*time.Second).Before(*dp.Timestamp) {
-				ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + int64(*query.Period)) * 1000})
 			}
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: value, Timestamp: dp.Timestamp.Unix() * 1000})
 		}
@@ -371,8 +380,8 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	}
 	if *query.Period > 60 && !lastTimestamp.IsZero() && lastTimestamp.Before(endTime) && lastTimestamp.Before(time.Now().UTC().Add(-lookbackDelta)) {
 		for _, s := range paramStatistics {
-			ts := tsm[*s]
-			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + *query.Period) * 1000})
+			ts := tsm[s]
+			ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + int64(*query.Period)) * 1000})
 		}
 	}
 
@@ -392,17 +401,18 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 }
 
 func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
+	ctx := context.TODO()
 	result := make(resultMap)
-	svc, err := getClient(region)
+	svc, err := getClient(ctx, region)
 	if err != nil {
 		return nil, err
 	}
 
 	params := &cloudwatch.GetMetricDataInput{
-		ScanBy: aws.String("TimestampAscending"),
+		ScanBy: types.ScanBy("TimestampAscending"),
 	}
 	var namespace string
-	var period int64
+	var period int32
 	periodUnit := calibratePeriod(*queries[0].StartTime)
 
 	// convert to GetMetricData query
@@ -414,15 +424,15 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 			if queryTimeRange/float64(period) >= 1440 {
 				period = int64(math.Ceil(queryTimeRange/float64(1440)/float64(periodUnit))) * int64(periodUnit)
 			}
-			query.Period = aws.Int64(period)
+			query.Period = aws.Int32(int32(period))
 		}
 
-		mdq := &cloudwatch.MetricDataQuery{
+		mdq := types.MetricDataQuery{
 			Id:         aws.String("id" + strconv.Itoa(i)),
 			ReturnData: aws.Bool(true),
 		}
-		mdq.MetricStat = &cloudwatch.MetricStat{
-			Metric: &cloudwatch.Metric{
+		mdq.MetricStat = &types.MetricStat{
+			Metric: &types.Metric{
 				Namespace:  query.Namespace,
 				MetricName: query.MetricName,
 			},
@@ -432,15 +442,15 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 		period = *query.Period
 		for _, d := range query.Dimensions {
 			mdq.MetricStat.Metric.Dimensions = append(mdq.MetricStat.Metric.Dimensions,
-				&cloudwatch.Dimension{
+				types.Dimension{
 					Name:  d.Name,
 					Value: d.Value,
 				})
 		}
 		if len(query.Statistics) == 1 {
-			mdq.MetricStat.Stat = query.Statistics[0]
+			mdq.MetricStat.Stat = aws.String(string(query.Statistics[0]))
 		} else if len(query.ExtendedStatistics) == 1 {
-			mdq.MetricStat.Stat = query.ExtendedStatistics[0]
+			mdq.MetricStat.Stat = aws.String(query.ExtendedStatistics[0])
 		} else {
 			return result, fmt.Errorf("no statistics specified")
 		}
@@ -483,14 +493,13 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 		tsm[*r.Id] = ts
 	}
 
-	ctx := context.Background()
 	nextToken := ""
 	for {
 		if nextToken != "" {
 			params.NextToken = aws.String(nextToken)
 		}
 
-		resp, err := svc.GetMetricDataWithContext(ctx, params)
+		resp, err := svc.GetMetricData(ctx, params)
 		if err != nil {
 			cloudwatchApiCalls.WithLabelValues("GetMetricData", namespace, "query", "error").Add(float64(len(params.MetricDataQueries)))
 			return nil, err
@@ -499,19 +508,19 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 		for _, r := range resp.MetricDataResults {
 			ts := tsm[*r.Id]
 			for i, t := range r.Timestamps {
-				ts.Samples = append(ts.Samples, prompb.Sample{Value: *r.Values[i], Timestamp: t.Unix() * 1000})
+				ts.Samples = append(ts.Samples, prompb.Sample{Value: r.Values[i], Timestamp: t.Unix() * 1000})
 				if period <= 60 {
 					continue
 				}
 				if i != len(r.Timestamps) && i != 0 {
 					lastTimestamp := r.Timestamps[i-1]
-					if lastTimestamp.Add(time.Duration(period) * time.Second).Before(*r.Timestamps[i]) {
-						ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + period) * 1000})
+					if lastTimestamp.Add(time.Duration(period) * time.Second).Before(r.Timestamps[i]) {
+						ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + int64(period)) * 1000})
 					}
 				} else if i == len(r.Timestamps) {
 					lastTimestamp := r.Timestamps[i]
 					if lastTimestamp.Before(*params.EndTime) && lastTimestamp.Before(time.Now().UTC().Add(-lookbackDelta)) {
-						ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + period) * 1000})
+						ts.Samples = append(ts.Samples, prompb.Sample{Value: math.Float64frombits(prom_value.StaleNaN), Timestamp: (lastTimestamp.Unix() + int64(period)) * 1000})
 					}
 				}
 			}
@@ -538,16 +547,15 @@ func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetric
 	return result, nil
 }
 
-func getClient(region string) (*cloudwatch.CloudWatch, error) {
+func getClient(ctx context.Context, region string) (*cloudwatch.Client, error) {
 	if client, ok := clientCache[region]; ok {
 		return client, nil
 	}
-	cfg := &aws.Config{Region: aws.String(region)}
-	sess, err := session.NewSession(cfg)
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
-	clientCache[region] = cloudwatch.New(sess, cfg)
+	clientCache[region] = cloudwatch.NewFromConfig(awsCfg)
 	return clientCache[region], nil
 }
 

@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/gogo/protobuf/proto"
@@ -32,7 +32,7 @@ const (
 	PROMETHEUS_MAXIMUM_POINTS = 11000
 )
 
-type config struct {
+type adapterConfig struct {
 	listenAddr  string
 	configFile  string
 	storagePath string
@@ -213,7 +213,7 @@ func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prom
 }
 
 func main() {
-	var cfg config
+	var cfg adapterConfig
 
 	flag.StringVar(&cfg.listenAddr, "web.listen-address", ":9415", "Address to listen on for web endpoints.")
 	flag.StringVar(&cfg.configFile, "config.file", "./cloudwatch_read_adapter.yml", "Configuration file path.")
