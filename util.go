@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
@@ -48,8 +49,10 @@ func GetDefaultRegion() (string, error) {
 		return regionCache, nil
 	}
 
-	ctx := context.TODO()
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRetryMaxAttempts(0))
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return "", err
 	}

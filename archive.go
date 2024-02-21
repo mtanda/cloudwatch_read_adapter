@@ -83,7 +83,7 @@ func NewArchiver(cfg ArchiveConfig, storagePath string, indexer *Indexer, logger
 		return nil, err
 	}
 
-	ctx := context.TODO()
+	ctx := context.Background()
 	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region[0]))
 	if err != nil {
 		return nil, err
