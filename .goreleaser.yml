@@ -7,7 +7,6 @@ builds:
     - CGO_ENABLED=0
   goos:
     - linux
-    - darwin
   goarch:
     - amd64
 nfpms:
@@ -18,15 +17,8 @@ nfpms:
     maintainer: Mitsuhiro Tanda
     description: cloudwatch read adapter
     license: Apache 2.0
-    replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
     formats:
       - deb
-      - rpm
     bindir: /usr/local/bin
     contents:
       - src: "packaging/deb/etc/default/cloudwatch_read_adapter"
