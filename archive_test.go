@@ -1,6 +1,7 @@
 package main_test
 
 import (
+	"context"
 	"io/ioutil"
 	"testing"
 	"time"
@@ -9,12 +10,12 @@ import (
 	main "github.com/mtanda/cloudwatch_read_adapter"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/util/testutil"
+	"github.com/stretchr/testify/require"
 )
 
 func TestQuery(t *testing.T) {
 	tmpdir, err := ioutil.TempDir("", "test")
-	testutil.Ok(t, err)
+	require.Equal(t, nil, err)
 
 	cfg := main.ArchiveConfig{
 		Region:    []string{"us-east-1"},
@@ -24,12 +25,12 @@ func TestQuery(t *testing.T) {
 	indexer := &main.Indexer{}
 	logger := log.NewNopLogger()
 	archiver, err := main.NewArchiver(cfg, tmpdir, indexer, logger)
-	testutil.Ok(t, err)
+	require.Equal(t, nil, err)
 
 	l := make(labels.Labels, 0)
 	l = append(l, labels.Label{Name: "__name__", Value: "test"})
 	err = archiver.ExposeSetTestData(l, [][]int64{{1533687120000, 1}})
-	testutil.Ok(t, err)
+	require.Equal(t, nil, err)
 
 	query := prompb.Query{
 		StartTimestampMs: 1533682980000,
@@ -47,9 +48,11 @@ func TestQuery(t *testing.T) {
 			},
 		},
 	}
-	result, err := archiver.Query(&query, 61, 5*time.Minute)
-	testutil.Ok(t, err)
-	testutil.Equals(t, len(result["__name__test"].Samples), 2)
-	testutil.Equals(t, result["__name__test"].Samples[0].Timestamp, int64(1533687120000))
-	testutil.Equals(t, result["__name__test"].Samples[1].Timestamp, int64(1533687181000))
+	ctx := context.Background()
+	result, err := archiver.Query(ctx, &query, 61, 5*time.Minute)
+	require.Equal(t, nil, err)
+	require.Equal(t, 3, len(result["__name__test"].Samples))
+	require.Equal(t, int64(1533683041000), result["__name__test"].Samples[0].Timestamp)
+	require.Equal(t, int64(1533687120000), result["__name__test"].Samples[1].Timestamp)
+	require.Equal(t, int64(1533687181000), result["__name__test"].Samples[2].Timestamp)
 }
