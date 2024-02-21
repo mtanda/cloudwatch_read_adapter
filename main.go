@@ -91,7 +91,7 @@ func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prom
 			ts.Labels = append(ts.Labels, prompb.Label{Name: "job", Value: originalJobLabel})
 			t := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
-			result[string(i)] = ts
+			result[fmt.Sprint(i)] = ts
 		}
 		//level.Debug(logger).Log("msg", "namespace is required")
 		return result.slice(), nil
