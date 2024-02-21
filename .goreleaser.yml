@@ -27,6 +27,7 @@ nfpms:
     formats:
       - deb
       - rpm
+    bindir: /usr/local/bin
     contents:
       - src: "packaging/deb/etc/default/cloudwatch_read_adapter"
         dst: "/etc/default/cloudwatch_read_adapter"
