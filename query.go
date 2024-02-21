@@ -229,13 +229,13 @@ func isSingleStatistic(queries []*cloudwatch.GetMetricStatisticsInput) bool {
 	return true
 }
 
-func queryCloudWatch(region string, queries []*cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration, result resultMap) error {
+func queryCloudWatch(ctx context.Context, region string, queries []*cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration, result resultMap) error {
 	if !isSingleStatistic(queries) {
 		if len(queries) > 200 {
 			return fmt.Errorf("Too many concurrent queries")
 		}
 		for _, query := range queries {
-			cwResult, err := queryCloudWatchGetMetricStatistics(region, query, q, lookbackDelta)
+			cwResult, err := queryCloudWatchGetMetricStatistics(ctx, region, query, q, lookbackDelta)
 			if err != nil {
 				return err
 			}
@@ -247,7 +247,7 @@ func queryCloudWatch(region string, queries []*cloudwatch.GetMetricStatisticsInp
 		}
 		for i := 0; i < len(queries); i += 70 {
 			e := int(math.Min(float64(i+70), float64(len(queries))))
-			cwResult, err := queryCloudWatchGetMetricData(region, queries[i:e], q, lookbackDelta)
+			cwResult, err := queryCloudWatchGetMetricData(ctx, region, queries[i:e], q, lookbackDelta)
 			if err != nil {
 				return err
 			}
@@ -257,8 +257,7 @@ func queryCloudWatch(region string, queries []*cloudwatch.GetMetricStatisticsInp
 	return nil
 }
 
-func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
-	ctx := context.TODO()
+func queryCloudWatchGetMetricStatistics(ctx context.Context, region string, query *cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 	svc, err := getClient(ctx, region)
 	if err != nil {
@@ -400,8 +399,7 @@ func queryCloudWatchGetMetricStatistics(region string, query *cloudwatch.GetMetr
 	return result, nil
 }
 
-func queryCloudWatchGetMetricData(region string, queries []*cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
-	ctx := context.TODO()
+func queryCloudWatchGetMetricData(ctx context.Context, region string, queries []*cloudwatch.GetMetricStatisticsInput, q *prompb.Query, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 	svc, err := getClient(ctx, region)
 	if err != nil {

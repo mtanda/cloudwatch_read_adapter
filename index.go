@@ -83,7 +83,7 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		return nil, err
 	}
 
-	ctx := context.TODO()
+	ctx := context.Background()
 	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region[0]))
 	if err != nil {
 		return nil, err
@@ -183,7 +183,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 				}
 
 				app := indexer.db.Appender(ctx)
-				metrics, err := indexer.filterOldMetrics(namespace, resp.Metrics)
+				metrics, err := indexer.filterOldMetrics(ctx, namespace, resp.Metrics)
 				if err != nil {
 					continue // ignore temporary error
 				}
@@ -438,11 +438,10 @@ func (indexer *Indexer) isExpired(t time.Time, namespace []string) bool {
 	return !indexer.isIndexed(t, namespace)
 }
 
-func (indexer *Indexer) filterOldMetrics(namespace string, metrics []types.Metric) ([]types.Metric, error) {
+func (indexer *Indexer) filterOldMetrics(ctx context.Context, namespace string, metrics []types.Metric) ([]types.Metric, error) {
 	filteredMetrics := make([]types.Metric, 0)
 	filterMap := make(map[string]bool)
 
-	ctx := context.TODO()
 	switch namespace {
 	case "AWS/EC2":
 		paginator := ec2.NewDescribeInstancesPaginator(indexer.ec2, &ec2.DescribeInstancesInput{})
