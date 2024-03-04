@@ -442,11 +442,10 @@ func (archiver *Archiver) process(app storage.Appender, _labels labels.Labels, s
 				l = append(l, labels.Label{Name: "ExtendedStatistic", Value: s})
 			}
 			var errAdd error
-			if _, ok := refs[s]; ok {
-				refs[s], errAdd = app.Append(refs[s], l, dp.Timestamp.Unix()*1000, value)
-			} else {
-				refs[s], errAdd = app.Append(0, l, dp.Timestamp.Unix()*1000, value)
+			if _, ok := refs[s]; !ok {
+				refs[s] = 0
 			}
+			refs[s], errAdd = app.Append(refs[s], l, dp.Timestamp.Unix()*1000, value)
 			if errAdd != nil {
 				level.Error(archiver.logger).Log("err", errAdd)
 				return err

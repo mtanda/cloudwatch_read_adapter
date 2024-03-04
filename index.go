@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	prom_value "github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"golang.org/x/sync/errgroup"
@@ -197,12 +198,12 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					for _, dimension := range metric.Dimensions {
 						l = append(l, labels.Label{Name: *dimension.Name, Value: *dimension.Value})
 					}
-					ref, err := app.Append(0, l, now.Unix()*1000, 0.0)
+					var ref storage.SeriesRef
+					_, err = app.Append(ref, l, now.Unix()*1000, 0.0)
 					if err != nil {
 						level.Error(indexer.logger).Log("err", err)
 						return err
 					}
-					_ = ref
 
 					if _, ok := metricNameMap[*metric.MetricName]; !ok {
 						metricNameMap[*metric.MetricName] = prometheus.NewGauge(
