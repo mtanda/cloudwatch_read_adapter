@@ -245,7 +245,7 @@ func (indexer *Indexer) getMatchedLabels(ctx context.Context, matchers []*labels
 	matchedLabels := make([]labels.Labels, 0)
 	dupCheck := make(map[string]bool)
 
-	querier, err := indexer.db.Querier(start, end)
+	querier, err := indexer.db.Querier(ctx, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (indexer *Indexer) getMatchedLabels(ctx context.Context, matchers []*labels
 		dimensions[name] = true
 	}
 
-	ss := querier.Select(ctx, false, nil, matchers...)
+	ss := querier.Select(false, nil, matchers...)
 	for ss.Next() {
 		s := ss.At()
 
@@ -309,7 +309,7 @@ func (indexer *Indexer) getMatchedLabels(ctx context.Context, matchers []*labels
 func (indexer *Indexer) Query(ctx context.Context, q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 
-	querier, err := indexer.db.Querier(q.Hints.StartMs, q.Hints.EndMs)
+	querier, err := indexer.db.Querier(ctx, q.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func (indexer *Indexer) Query(ctx context.Context, q *prompb.Query, maximumStep 
 		return nil, err
 	}
 
-	ss := querier.Select(ctx, false, nil, matchers...)
+	ss := querier.Select(false, nil, matchers...)
 	for ss.Next() {
 		ts := &prompb.TimeSeries{}
 		s := ss.At()
