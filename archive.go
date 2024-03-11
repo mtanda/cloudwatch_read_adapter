@@ -498,7 +498,7 @@ func (archiver *Archiver) Query(ctx context.Context, q *prompb.Query, maximumSte
 		return nil, err
 	}
 
-	querier, err := archiver.db.Querier(q.Hints.StartMs, q.Hints.EndMs)
+	querier, err := archiver.db.Querier(ctx, q.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return nil, err
 	}
@@ -511,7 +511,7 @@ func (archiver *Archiver) Query(ctx context.Context, q *prompb.Query, maximumSte
 
 	// TODO: generate Average result from Sum and SampleCount
 	// TODO: generate Maximum/Minimum result from Average
-	ss := querier.Select(ctx, false, nil, matchers...)
+	ss := querier.Select(false, nil, matchers...)
 	for ss.Next() {
 		ts := &prompb.TimeSeries{}
 		s := ss.At()
