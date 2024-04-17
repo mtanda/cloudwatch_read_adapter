@@ -76,7 +76,7 @@ func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prom
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
-		matchedLabelsList, err := indexer.getMatchedLabels(ctx, m, q.StartTimestampMs, q.EndTimestampMs)
+		matchedLabelsList, err := indexer.getMatchedLabels(m, q.StartTimestampMs, q.EndTimestampMs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate internal query")
 		}
@@ -91,7 +91,7 @@ func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prom
 			ts.Labels = append(ts.Labels, prompb.Label{Name: "job", Value: originalJobLabel})
 			t := time.Unix(int64(q.EndTimestampMs/1000), int64(q.EndTimestampMs%1000*1000))
 			ts.Samples = append(ts.Samples, prompb.Sample{Value: 0, Timestamp: t.Unix() * 1000})
-			result[fmt.Sprint(i)] = ts
+			result[string(i)] = ts
 		}
 		//level.Debug(logger).Log("msg", "namespace is required")
 		return result.slice(), nil
@@ -110,7 +110,7 @@ func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prom
 	}
 
 	if debugIndexMode {
-		result, err := indexer.Query(ctx, q, maximumStep, lookbackDelta)
+		result, err := indexer.Query(q, maximumStep, lookbackDelta)
 		if err != nil {
 			level.Error(logger).Log("err", err)
 			return nil, fmt.Errorf("failed to get time series from index")
@@ -156,7 +156,7 @@ func runQuery(ctx context.Context, indexer *Indexer, archiver *Archiver, q *prom
 			if debugMode {
 				level.Info(logger).Log("msg", "querying for archive", "query", fmt.Sprintf("%+v", aq))
 			}
-			archivedResult, err := archiver.Query(ctx, &aq, maximumStep, lookbackDelta)
+			archivedResult, err := archiver.Query(&aq, maximumStep, lookbackDelta)
 			if err != nil {
 				level.Error(logger).Log("err", err)
 				return nil, fmt.Errorf("failed to get time series from archive")

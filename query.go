@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/prometheus/client_golang/prometheus"
-	prom_value "github.com/prometheus/prometheus/model/value"
+	prom_value "github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/prompb"
 )
 
@@ -121,7 +121,7 @@ func getQueryWithIndex(ctx context.Context, q *prompb.Query, indexer *Indexer, m
 		// expand enough long period to match index
 		iq.Hints.StartMs = time.Unix(q.Hints.EndMs/1000, 0).Add(-2*indexer.interval).Unix() * 1000
 	}
-	matchedLabelsList, err := indexer.getMatchedLabels(ctx, matchers, iq.Hints.StartMs, q.Hints.EndMs)
+	matchedLabelsList, err := indexer.getMatchedLabels(matchers, iq.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return region, queries, err
 	}
