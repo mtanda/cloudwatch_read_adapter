@@ -9,25 +9,33 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/tsdb/labels"
 )
 
 var invalidMetricNamePattern = regexp.MustCompile(`[^a-zA-Z0-9:_]`)
 
-func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]*labels.Matcher, error) {
-	result := make([]*labels.Matcher, 0, len(matchers))
+func fromLabelMatchers(matchers []*prompb.LabelMatcher) ([]labels.Matcher, error) {
+	result := make([]labels.Matcher, 0, len(matchers))
 	for _, matcher := range matchers {
-		var m *labels.Matcher
+		var m labels.Matcher
+		var err error
 		switch matcher.Type {
 		case prompb.LabelMatcher_EQ:
-			m = labels.MustNewMatcher(labels.MatchEqual, matcher.Name, matcher.Value)
+			m = labels.NewEqualMatcher(matcher.Name, matcher.Value)
 		case prompb.LabelMatcher_NEQ:
-			m = labels.MustNewMatcher(labels.MatchNotEqual, matcher.Name, matcher.Value)
+			m = labels.Not(labels.NewEqualMatcher(matcher.Name, matcher.Value))
 		case prompb.LabelMatcher_RE:
-			m = labels.MustNewMatcher(labels.MatchRegexp, matcher.Name, "^(?:"+matcher.Value+")$")
+			m, err = labels.NewRegexpMatcher(matcher.Name, "^(?:"+matcher.Value+")$")
+			if err != nil {
+				return nil, err
+			}
 		case prompb.LabelMatcher_NRE:
-			m = labels.MustNewMatcher(labels.MatchNotRegexp, matcher.Name, "^(?:"+matcher.Value+")$")
+			m, err = labels.NewRegexpMatcher(matcher.Name, "^(?:"+matcher.Value+")$")
+			if err != nil {
+				return nil, err
+			}
+			m = labels.Not(m)
 		default:
 			return nil, fmt.Errorf("invalid matcher type")
 		}

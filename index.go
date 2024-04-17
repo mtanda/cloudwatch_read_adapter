@@ -19,12 +19,10 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/model/labels"
-	prom_value "github.com/prometheus/prometheus/model/value"
+	prom_value "github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
-	"github.com/prometheus/prometheus/tsdb/chunkenc"
+	"github.com/prometheus/prometheus/tsdb/labels"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -99,11 +97,14 @@ func NewIndexer(cfg IndexConfig, storagePath string, logger log.Logger) (*Indexe
 		logger,
 		registry,
 		&tsdb.Options{
-			RetentionDuration: time.Duration(retention).Milliseconds(),
-			MinBlockDuration:  (time.Duration(2) * time.Hour).Milliseconds(),
-			MaxBlockDuration:  (time.Duration(72) * time.Hour).Milliseconds(),
+			RetentionDuration: uint64(retention) / 1000 / 1000, // milliseconds
+			BlockRanges: []int64{
+				2 * 60 * 60 * 1000,
+				6 * 60 * 60 * 1000,
+				24 * 60 * 60 * 1000,
+				72 * 60 * 60 * 1000,
+			},
 		},
-		nil,
 	)
 	if err != nil {
 		return nil, err
@@ -183,7 +184,7 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					cloudwatchApiCalls.WithLabelValues("ListMetrics", namespace, "index", "success").Add(float64(1))
 				}
 
-				app := indexer.db.Appender(ctx)
+				app := indexer.db.Appender()
 				metrics, err := indexer.filterOldMetrics(ctx, namespace, resp.Metrics)
 				if err != nil {
 					continue // ignore temporary error
@@ -198,12 +199,12 @@ func (indexer *Indexer) index(ctx context.Context) error {
 					for _, dimension := range metric.Dimensions {
 						l = append(l, labels.Label{Name: *dimension.Name, Value: *dimension.Value})
 					}
-					var ref storage.SeriesRef
-					_, err = app.Append(ref, l, now.Unix()*1000, 0.0)
+					ref, err := app.Add(l, now.Unix()*1000, 0.0)
 					if err != nil {
 						level.Error(indexer.logger).Log("err", err)
 						return err
 					}
+					_ = ref
 
 					if _, ok := metricNameMap[*metric.MetricName]; !ok {
 						metricNameMap[*metric.MetricName] = prometheus.NewGauge(
@@ -241,11 +242,11 @@ func (indexer *Indexer) index(ctx context.Context) error {
 	}
 }
 
-func (indexer *Indexer) getMatchedLabels(ctx context.Context, matchers []*labels.Matcher, start int64, end int64) ([]labels.Labels, error) {
+func (indexer *Indexer) getMatchedLabels(matchers []labels.Matcher, start int64, end int64) ([]labels.Labels, error) {
 	matchedLabels := make([]labels.Labels, 0)
 	dupCheck := make(map[string]bool)
 
-	querier, err := indexer.db.Querier(ctx, start, end)
+	querier, err := indexer.db.Querier(start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -253,14 +254,17 @@ func (indexer *Indexer) getMatchedLabels(ctx context.Context, matchers []*labels
 
 	dimensions := make(map[string]bool)
 	for _, matcher := range matchers {
-		name := matcher.Name
+		name := matcher.Name()
 		if name == "Region" || name == "Namespace" || name == "MetricName" || name == "__name__" {
 			continue
 		}
 		dimensions[name] = true
 	}
 
-	ss := querier.Select(false, nil, matchers...)
+	ss, err := querier.Select(matchers...)
+	if err != nil {
+		return nil, err
+	}
 	for ss.Next() {
 		s := ss.At()
 
@@ -306,10 +310,10 @@ func (indexer *Indexer) getMatchedLabels(ctx context.Context, matchers []*labels
 	return matchedLabels, nil
 }
 
-func (indexer *Indexer) Query(ctx context.Context, q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
+func (indexer *Indexer) Query(q *prompb.Query, maximumStep int64, lookbackDelta time.Duration) (resultMap, error) {
 	result := make(resultMap)
 
-	querier, err := indexer.db.Querier(ctx, q.Hints.StartMs, q.Hints.EndMs)
+	querier, err := indexer.db.Querier(q.Hints.StartMs, q.Hints.EndMs)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +326,10 @@ func (indexer *Indexer) Query(ctx context.Context, q *prompb.Query, maximumStep 
 		return nil, err
 	}
 
-	ss := querier.Select(false, nil, matchers...)
+	ss, err := querier.Select(matchers...)
+	if err != nil {
+		return nil, err
+	}
 	for ss.Next() {
 		ts := &prompb.TimeSeries{}
 		s := ss.At()
@@ -341,9 +348,9 @@ func (indexer *Indexer) Query(ctx context.Context, q *prompb.Query, maximumStep 
 		}
 
 		lastTimestamp := q.Hints.StartMs
-		it := s.Iterator(nil)
+		it := s.Iterator()
 		refTime := q.Hints.StartMs
-		for it.Next() != chunkenc.ValNone && refTime <= q.Hints.EndMs {
+		for it.Next() && refTime <= q.Hints.EndMs {
 			t, v := it.At()
 			for refTime < lastTimestamp && step > 0 { // for safety, check step
 				refTime += (step * 1000)

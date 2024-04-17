@@ -1,19 +1,17 @@
 package main
 
-import (
-	"context"
-
-	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/storage"
-)
+import "github.com/prometheus/prometheus/tsdb/labels"
 
 func (archiver *Archiver) ExposeSetTestData(l labels.Labels, points [][]int64) error {
-	ctx := context.Background()
-	app := archiver.db.Appender(ctx)
-	var refs storage.SeriesRef
+	app := archiver.db.Appender()
+	var refs uint64
 	var err error
 	for _, point := range points {
-		refs, err = app.Append(refs, l, point[0], float64(point[1]))
+		if refs != 0 {
+			err = app.AddFast(refs, point[0], float64(point[1]))
+		} else {
+			_, err = app.Add(l, point[0], float64(point[1]))
+		}
 		if err != nil {
 			return err
 		}
